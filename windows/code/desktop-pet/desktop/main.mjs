@@ -140,7 +140,7 @@ async function switchModel(id) {
     report({ type: 'model-switched', from: previous, to: id });
     // 新模型的主色可能不同，重新取一次面板配色。
     void applyModelThemeWhenReady();
-    renderFeatureControls();
+    renderFeatureControls(); applyFramingYFromStorage();
     return true;
   } catch (error) {
     report({ type: 'model-error', message: 'switch failed: ' + String(error?.message ?? error).slice(0, 120) });
@@ -1325,7 +1325,7 @@ try {
     renderer = null;
   }
   applyPresentationPolicy(); renderer.setFraming(display.mode);
-  renderFeatureControls();
+  renderFeatureControls(); applyFramingYFromStorage();
   // 模型这时才加载完，纹理图也解码好了 —— 面板配色就取它。
   //
   // 这里用 setTimeout 是有原因的：applyModelTheme 是 const，定义在文件靠后的位置，
@@ -1653,6 +1653,41 @@ try {
       const on = Array.isArray(sel) ? sel[index] === true : sel === index;
       button.setAttribute('aria-pressed', String(on));
     }
+  }
+
+  /**
+   * 半身模式下模型的上移量。
+   *
+   * 默认 -1.60 是按上半身居中调的，但不同模型头部高低不同，头顶可能被裁掉。
+   * 这里给个滑杆让用户自己挪，数值越大越往上。选择存 localStorage。
+   */
+  const FRAMING_KEY = 'aaaagent.framingY';
+  const framingSlider = $('ps-framing-y'), framingOut = $('ps-framing-y-out');
+
+  function applyFramingY(value, persist) {
+    const v = Math.max(-3, Math.min(0.5, Number(value)));
+    if (!Number.isFinite(v)) return;
+    if (framingOut) framingOut.value = v.toFixed(2);
+    if (framingSlider) framingSlider.value = String(v);
+    renderer?.setFramingOffset?.(v);
+    if (persist) { try { localStorage.setItem(FRAMING_KEY, String(v)); } catch { /* 隐私模式 */ } }
+  }
+
+  // 启动时套用上次的选择
+  try {
+    const saved = localStorage.getItem(FRAMING_KEY);
+    if (saved !== null) applyFramingY(saved, false);
+  } catch { /* 隐私模式 */ }
+
+  framingSlider && (framingSlider.oninput = event => applyFramingY(event.target.value, false));
+  framingSlider && (framingSlider.onchange = event => applyFramingY(event.target.value, true));
+
+  /** 切模型后把用户调的半身位置重新套到新渲染器上。 */
+  function applyFramingYFromStorage() {
+    try {
+      const saved = localStorage.getItem(FRAMING_KEY);
+      if (saved !== null) applyFramingY(saved, false);
+    } catch { /* 隐私模式 */ }
   }
 
   // --- 模型切换 ---

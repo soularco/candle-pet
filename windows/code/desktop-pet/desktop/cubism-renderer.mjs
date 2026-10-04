@@ -653,10 +653,18 @@ export class JellyfishRenderer extends CubismUserModel {
     const clamp = v => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
     this.cursorGazeTarget = { x: clamp(x), y: clamp(y) };
   }
+  /** 半身模式下模型的上移量。数值越大越往上（露出更多头顶）。 */
+  setFramingOffset(y) {
+    const value = Number(y);
+    if (!Number.isFinite(value)) return;
+    this.framingOffsetY = Math.max(-3, Math.min(3, value));
+    this.syncViewport(true);
+  }
+
   setFraming(mode) {
     if (!['full', 'half'].includes(mode) || this.framing === mode && this.projection) return;
     if (mode === 'full') this.feather?.releaseTexture();
-    this.framing = mode; this.syncViewport(true);
+    this.framing = mode; if (this.framingOffsetY === undefined) this.framingOffsetY = -1.60; this.syncViewport(true);
   }
   syncViewport(force = false) {
     if (!this.canvas) return;
@@ -691,7 +699,9 @@ export class JellyfishRenderer extends CubismUserModel {
     const poseX = pose?.x ?? 0, poseY = pose?.y ?? 0;
     if (this.framing === 'half') {
       this.projection.translateX(poseX);
-      this.projection.translateY((-1.60) + poseY);
+      // 半身模式的上移量可由面板调节：默认 -1.60，用户可按需上下移动，
+      // 让头顶完整露出来。数值越大越往上。
+      this.projection.translateY((this.framingOffsetY ?? -1.60) + poseY);
     } else if (poseX || poseY) {
       // The full-body framing keeps whatever offset the model matrix established.
       this.projection.translate(poseX, poseY);
