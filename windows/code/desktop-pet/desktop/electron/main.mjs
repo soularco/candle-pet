@@ -237,7 +237,8 @@ function savePreferences() {
 function layout() {
   if (!win || win.isDestroyed()) return;
   const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) });
-  const fitted = fitDisplay(prefs.width, panelOpen, display.workArea, anchor, prefs.mode);
+  const fitted = fitDisplay(prefs.width, panelOpen, display.workArea, anchor, prefs.mode,
+    { width: prefs.drawerWidth, height: prefs.drawerHeight });
   anchor = fitted.anchor; win.setBounds(fitted.bounds); deliver('displayConfig', fitted.config);
 }
 const trusted = event => win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame && event.senderFrame.url === 'pet://app/index.html';
@@ -591,7 +592,7 @@ ipcMain.on('pet:shell', (event, value) => {
       else if (beforeResize !== undefined) {
         if (value.phase === 'cancel') { prefs.width = beforeResize; beforeResize = undefined; }
         else if (['update', 'commit'].includes(value.phase) && Number.isFinite(value.width)) {
-          prefs.width = Math.max(180, Math.min(720, value.width));
+          prefs.width = Math.max(72, Math.min(720, value.width));
           if (value.phase === 'commit') { beforeResize = undefined; savePreferences(); }
         }
         layout();
@@ -637,6 +638,16 @@ ipcMain.on('pet:shell', (event, value) => {
     // LAN chat diagnostics. The reply path failed once with no trace at all, which
     // made it impossible to tell where it stopped.
     case 'remote_trace': logLine('REMOTE_TRACE ' + String(value.step ?? '?') + ' ' + String(value.detail ?? '').slice(0, 60)); break;
+    // 面板右下角拖出来的尺寸。存进偏好吗，布局时按它算抽屉大小。
+    case 'panel_resize': {
+      if (Number.isFinite(value.width)) prefs.drawerWidth = Math.max(280, Math.min(900, Math.round(value.width)));
+      if (Number.isFinite(value.height)) prefs.drawerHeight = Math.max(240, Math.min(1000, Math.round(value.height)));
+      savePreferences();
+      logLine('panel_resize 收到 ' + value.width + 'x' + value.height +
+        ' → prefs ' + prefs.drawerWidth + 'x' + prefs.drawerHeight);
+      layout();
+      break;
+    }
     case 'quit': app.quit(); break;
     // The panel's "打开日志" button. Opening the folder rather than the file means the
     // rotated .log.1 is reachable too, which is often the one that matters.
@@ -778,6 +789,8 @@ ipcMain.on('pet:diagnostic', (event, value) => {
     // The first parameter this rig lacks. One line is enough to diagnose a model
     // change without flooding the log.
     logLine('Renderer: model-parameter-missing ' + String(value.message ?? '').slice(0, 60));
+  } else if (value.type === 'model-switched') {
+    logLine('Renderer: model-switched ' + value.from + ' -> ' + value.to);
   } else if (value.type === 'render-rate') {
     // Only sent when the frame rate is actually poor; useful for diagnosing
     // "it feels choppy" reports without logging a healthy session.
@@ -793,7 +806,7 @@ prefsFile = resolve(app.getPath('userData'), 'windows-display.json');
 try {
   const saved = JSON.parse(await readFile(prefsFile, 'utf8'));
   if (['full', 'half'].includes(saved.mode)) prefs.mode = saved.mode;
-  if (Number.isFinite(saved.width)) prefs.width = Math.max(180, Math.min(720, saved.width));
+  if (Number.isFinite(saved.width)) prefs.width = Math.max(72, Math.min(720, saved.width));
   if (validHotkey(saved.hotkey)) prefs.hotkey = saved.hotkey;
   if (Number.isFinite(saved.anchor?.x) && Number.isFinite(saved.anchor?.y)) anchor = saved.anchor;
 } catch {}

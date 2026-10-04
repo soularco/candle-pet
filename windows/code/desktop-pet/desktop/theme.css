@@ -146,3 +146,17 @@ footer{ gap: 7px; }
 #qb-volume output{ color: var(--ink-dim); font-size: 11px; min-width: 26px; }
 #open{ background: rgb(var(--panel-tint) / var(--panel-alpha)); border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 6px 16px; }
 #loading{ background: rgb(var(--panel-tint) / var(--panel-alpha)); color: var(--ink); border-color: var(--line); font-size: 12px; }
+
+/* 模型下拉：和输入框同一套外观 */
+.ps-select{
+  font: inherit; font-size: 12px; padding: 4px 8px;
+  border-radius: 7px; border: 1px solid var(--line);
+  background: var(--fill); color: var(--ink); min-width: 96px;
+}
+.ps-select option{ background: #1b1d24; color: var(--ink); }
+
+/* 模型功能开关（发型 / 动作 / 呆毛…）：只在该模型支持时出现 */
+.ps-features{display:flex;flex-direction:column;gap:6px;padding:6px 0 8px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.ps-feature-row{display:flex;flex-direction:column;gap:4px}
+.ps-feature-title{font-size:11px;color:var(--ink-dim)}
+.ps-feature-options{display:flex;flex-wrap:wrap;gap:5px}

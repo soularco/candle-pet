@@ -18,8 +18,11 @@
   <div class="pet-settings-body">
    <!-- Model size leads: the drawer is only 270px tall, and this slider used to sit at
         the very bottom where it was clipped and impossible to find. -->
+   <div id="ps-features" class="ps-features" hidden></div>
+   <label class="ps-row"><span>模型</span>
+    <select id="ps-model" class="ps-select"></select></label>
    <label class="ps-row"><span>模型大小</span>
-    <input id="ps-scale" type="range" min="50" max="220" step="5"> <output id="ps-scale-out">100</output>%</label>
+    <input id="ps-scale" type="range" min="20" max="220" step="5"> <output id="ps-scale-out">100</output>%</label>
    <label class="ps-row"><span>主动开口间隔</span>
     <input id="ps-min" type="number" min="5" max="600" step="1" inputmode="numeric"> ~
     <input id="ps-max" type="number" min="5" max="600" step="1" inputmode="numeric"> 秒</label>

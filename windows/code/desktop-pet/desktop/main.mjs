@@ -15,6 +15,140 @@ import { BrowserPlaybackDriver } from '../media/browser-playback.ts';
 import { DesktopPlaybackController } from './playback-controller.ts';
 import { BrowserCaptureDriver } from '../media/browser-capture.ts';
 import { DESKTOP_BRIDGE_VERSION } from '../contracts/desktop-bridge.ts';
+
+/**
+ * 可选模型。
+ *
+ * 每个模型是 assets/models/<id>/ 下的一个自包含目录：moc3、纹理、物理、表情。
+ * 渲染器通过 assetBase 前缀加载，切换就是换前缀再重建一次。
+ */
+const MODEL_BASE = 'assets/models/';
+const AVAILABLE_MODELS = [
+  { id: 'xiro', label: '希罗' },
+  { id: 'xue', label: '雪' },
+  { id: 'wujinxia', label: '无尽夏' },
+];
+const MODEL_KEY = 'aaaagent.model';
+let activeModelId = (() => {
+  try {
+    const saved = localStorage.getItem(MODEL_KEY);
+    if (saved && AVAILABLE_MODELS.some(m => m.id === saved)) return saved;
+  } catch { /* 隐私模式 */ }
+  return AVAILABLE_MODELS[0].id;
+})();
+
+/**
+ * 切换到另一个模型。
+ *
+ * 先释放旧的渲染器（WebGL 纹理和上下文都要还回去，否则切换几次就会耗尽），
+ * 再用新的 assetBase 重建。失败时保留原来的模型，不让界面变成空白。
+ */
+/**
+ * 等当前模型的纹理解码完成再取色。
+ *
+ * 换模型后立刻取色会失败 —— 无尽夏的 moc3 有 16MB，纹理要几秒才到位。
+ * 之前用固定 900ms 延时，所以换模型后面板颜色一直是上一个模型的。
+ */
+/**
+ * 换模型后重新取面板配色。
+ *
+ * 取色逻辑直接写在这里，不调用别处的函数 —— 之前调用的 applyModelTheme 是嵌在
+ * 另一个函数里的，声明提升出不了那个块，所以这里一直静默失败，面板颜色永远停在
+ * 第一个模型上。
+ *
+ * 顺带解决时序问题：无尽夏的 moc3 有 16MB，换完模型纹理要几秒才解码好，
+ * 所以轮询等它出现，而不是靠固定延时。
+ */
+async function applyModelThemeWhenReady(attempts = 20) {
+  const wanted = activeModelId;
+  for (let i = 0; i < attempts; i++) {
+    if (activeModelId !== wanted) return false;          // 又换了一次，交给新的那次
+    const image = renderer?.textureImages?.[0];
+    if (image && image.width) {
+      try {
+        // 降到 64×64 再统计：足够看出主色，又不会被细节噪声带偏。
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(image, 0, 0, 64, 64);
+        const { data } = ctx.getImageData(0, 0, 64, 64);
+
+        const hueBins = new Array(36).fill(0);
+        let darkSum = [0, 0, 0], darkN = 0;
+        for (let k = 0; k < data.length; k += 4) {
+          if (data[k + 3] < 24) continue;                // 透明部分不计
+          const r = data[k] / 255, g = data[k + 1] / 255, b = data[k + 2] / 255;
+          const max = Math.max(r, g, b), min = Math.min(r, g, b);
+          const l = (max + min) / 2;
+          const sat = max === min ? 0 : (l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min));
+          if (l < 0.22) { darkSum[0] += r; darkSum[1] += g; darkSum[2] += b; darkN++; continue; }
+          if (sat < 0.28 || l < 0.15) continue;          // 只要够鲜艳的
+          let h;
+          if (max === r) h = ((g - b) / (max - min) + 6) % 6;
+          else if (max === g) h = (b - r) / (max - min) + 2;
+          else h = (r - g) / (max - min) + 4;
+          hueBins[Math.round((h * 60) / 10) % 36] += 1 + sat;
+        }
+
+        let best = 0;
+        for (let k = 1; k < hueBins.length; k++) if (hueBins[k] > hueBins[best]) best = k;
+        const hue = best * 10;
+        const root = document.documentElement;
+
+        if (hueBins[best] > 0) {
+          root.style.setProperty('--accent', 'hsl(' + hue + ' 58% 52%)');
+          root.style.setProperty('--accent-soft', 'hsl(' + hue + ' 58% 52% / .20)');
+        }
+        // 底色：优先用纹理里的暗部均值；没有暗部就用主色相推一个同族的深色。
+        // 不留空 —— 变量一旦被赋过值，留空会让面板变成纯黑。
+        if (darkN > 0) {
+          const R = Math.round(darkSum[0] / darkN * 255);
+          const G = Math.round(darkSum[1] / darkN * 255);
+          const B = Math.round(darkSum[2] / darkN * 255);
+          root.style.setProperty('--panel-tint', R + ' ' + G + ' ' + B);
+        } else {
+          const tint = document.createElement('span');
+          tint.style.color = 'hsl(' + hue + ' 26% 14%)';
+          document.body.append(tint);
+          const rgb = getComputedStyle(tint).color.match(/\d+/g) ?? ['22', '24', '30'];
+          tint.remove();
+          root.style.setProperty('--panel-tint', rgb.slice(0, 3).join(' '));
+        }
+        report({ type: 'model-theme', model: wanted, hue, dark: darkN > 0 });
+        return true;
+      } catch (error) {
+        report({ type: 'model-theme', model: wanted, error: String(error?.message ?? error).slice(0, 80) });
+        return false;
+      }
+    }
+    await new Promise(done => setTimeout(done, 500));
+  }
+  return false;
+}
+
+async function switchModel(id) {
+  if (!AVAILABLE_MODELS.some(m => m.id === id) || id === activeModelId) return false;
+  const previous = activeModelId;
+  activeModelId = id;
+  try {
+    try { renderer?.release?.(); } catch { /* 释放失败也要继续 */ }
+    renderer = new JellyfishRenderer($('model'), report, { assetBase: MODEL_BASE + id + '/' });
+    await renderer.load();
+    applyPresentationPolicy();
+    renderer.setFraming(display.mode);
+    try { localStorage.setItem(MODEL_KEY, id); } catch { /* 隐私模式 */ }
+    report({ type: 'model-switched', from: previous, to: id });
+    // 新模型的主色可能不同，重新取一次面板配色。
+    void applyModelThemeWhenReady();
+    renderFeatureControls();
+    return true;
+  } catch (error) {
+    report({ type: 'model-error', message: 'switch failed: ' + String(error?.message ?? error).slice(0, 120) });
+    activeModelId = previous;
+    return false;
+  }
+}
+
 const $ = id => document.getElementById(id);
 const native = (name, value) => window.desktopHost ? window.desktopHost.postMessage(name, value) : window.webkit?.messageHandlers[name]?.postMessage(value);
 const report = value => native('diagnostic', value);
@@ -1178,7 +1312,12 @@ try {
   // A model that will not load must not take the rest of the app with it. The
   // dialogue library, the reactions and the speech are all model-independent, so a
   // failure here degrades to "no character on screen" rather than "nothing works".
-  renderer = new JellyfishRenderer($('model'), report);
+  // 首屏用哪个模型：只读一次 localStorage，不引用后面才定义的常量。
+  const initialModelId = (() => {
+    try { const s = localStorage.getItem('aaaagent.model'); if (s) return s; } catch { /* 隐私模式 */ }
+    return 'xiro';
+  })();
+  renderer = new JellyfishRenderer($('model'), report, { assetBase: 'assets/models/' + initialModelId + '/' });
   try {
     await renderer.load();
   } catch (error) {
@@ -1186,6 +1325,7 @@ try {
     renderer = null;
   }
   applyPresentationPolicy(); renderer.setFraming(display.mode);
+  renderFeatureControls();
   // 模型这时才加载完，纹理图也解码好了 —— 面板配色就取它。
   //
   // 这里用 setTimeout 是有原因的：applyModelTheme 是 const，定义在文件靠后的位置，
@@ -1283,7 +1423,7 @@ try {
   const scaleSlider = $('ps-scale'), scaleOut = $('ps-scale-out');
   const SCALE_BASE_WIDTH = 360;
   const applyScale = percent => {
-    const pct = Math.max(50, Math.min(220, Math.round(Number(percent) || 100)));
+    const pct = Math.max(20, Math.min(220, Math.round(Number(percent) || 100)));
     if (scaleOut) scaleOut.value = pct;
     // The host only acts on resize_model once a 'begin' has set its baseline: without
     // it the whole branch is skipped and the slider does nothing. 'begin' captures the
@@ -1342,35 +1482,40 @@ try {
   const drawer = $('drawer');
   if (panelGrip && drawer) {
     panelGrip.addEventListener('pointerdown', start => {
-      start.preventDefault();
-      start.stopPropagation();
-      // setPointerCapture 在合成事件（自动化、部分触控板）上会抛异常，
-      // 之前它一抛，下面的拖动监听就全部没装上。抓不住就退回普通拖动。
-      try { panelGrip.setPointerCapture(start.pointerId); } catch { /* 退回普通拖动 */ }
-      const rect = drawer.getBoundingClientRect();
-      const origin = { x: start.clientX, y: start.clientY, w: rect.width, h: rect.height };
-      const move = event => {
-        // 右下角拖动：往右下变大。上下限同时受窗口大小约束。
-        const w = Math.max(240, Math.min(window.innerWidth - 16, origin.w + (event.clientX - origin.x)));
-        const h = Math.max(220, Math.min(window.innerHeight - 16, origin.h + (event.clientY - origin.y)));
-        document.documentElement.style.setProperty('--panel-w', w + 'px');
-        document.documentElement.style.setProperty('--panel-h', h + 'px');
-      };
-      const end = () => {
-        panelGrip.removeEventListener('pointermove', move);
-        panelGrip.removeEventListener('pointerup', end);
-        panelGrip.removeEventListener('pointercancel', end);
-        const root = getComputedStyle(document.documentElement);
-        writeBox({
-          ...readBox(),
-          w: parseInt(root.getPropertyValue('--panel-w'), 10) || undefined,
-          h: parseInt(root.getPropertyValue('--panel-h'), 10) || undefined,
-        });
-      };
-      panelGrip.addEventListener('pointermove', move);
-      panelGrip.addEventListener('pointerup', end);
-      panelGrip.addEventListener('pointercancel', end);
-    });
+    start.preventDefault();
+    start.stopPropagation();
+    try { panelGrip.setPointerCapture(start.pointerId); } catch { /* 合成事件会抛，退回普通拖动 */ }
+
+    const rect = drawer.getBoundingClientRect();
+    const origin = { x: start.clientX, y: start.clientY, w: rect.width, h: rect.height };
+    // 记住【想要多大】。
+    //
+    // 不能等到松手时读 getBoundingClientRect()：窗口还没变大，抽屉会被裁掉，
+    // 读回来仍是被裁后的旧值，于是放大永远传不出去（高度只能减不能增就是这么来的）。
+    let target = { w: rect.width, h: rect.height };
+
+    const move = event => {
+      // 本地先预览，松手时再交给主进程，免得拖动途中反复重排窗口。
+      const nw = Math.max(280, Math.min(900, origin.w + (event.clientX - origin.x)));
+      const nh = Math.max(240, Math.min(1000, origin.h + (event.clientY - origin.y)));
+      target = { w: nw, h: nh };
+      drawer.style.width = nw + 'px';
+      drawer.style.height = nh + 'px';
+      drawer.style.maxHeight = nh + 'px';
+    };
+
+    const end = () => {
+      panelGrip.removeEventListener('pointermove', move);
+      panelGrip.removeEventListener('pointerup', end);
+      panelGrip.removeEventListener('pointercancel', end);
+      // 用目标值，不用回读的实际值。
+      native('shell', { type: 'panel_resize', width: Math.round(target.w), height: Math.round(target.h) });
+    };
+
+    panelGrip.addEventListener('pointermove', move);
+    panelGrip.addEventListener('pointerup', end);
+    panelGrip.addEventListener('pointercancel', end);
+  });
     $('ps-size-reset') && ($('ps-size-reset').onclick = () => {
       document.documentElement.style.removeProperty('--panel-w');
       document.documentElement.style.removeProperty('--panel-h');
@@ -1397,7 +1542,7 @@ try {
    * 反复降采样到很小，统计色相直方图，挑出出现最多的饱和色相当强调色，
    * 再把它的暗调版本当作底色 —— 这样面板和角色是同一族颜色。
    */
-  const applyModelTheme = async () => {
+  async function applyModelTheme() {
     try {
       // 渲染器已经把纹理图片解码好了，直接用 —— 它用的路径是
       // settings.getTextureFileName(i)，不会因为模型换文件名而失效。
@@ -1453,7 +1598,7 @@ try {
       report({ type: 'model-theme', error: String(error?.message ?? error).slice(0, 80) });
       return false;
     }
-  };
+  }
 
   // --- 取景 ---
   const setMode = mode => {
@@ -1463,6 +1608,68 @@ try {
       if (button) button.setAttribute('aria-pressed', String(m === mode));
     }
   };
+  /**
+   * 模型的可切换功能（发型、动作、呆毛…）。
+   *
+   * 只在该模型支持时才出现 —— 渲染器读它的 features.json，没有的组不渲染。
+   */
+  function renderFeatureControls() {
+    const host = $('ps-features');
+    if (!host) return;
+    host.textContent = '';
+    const features = renderer?.getFeatures?.();
+    if (!features?.groups) { host.hidden = true; return; }
+    host.hidden = false;
+    for (const [key, group] of Object.entries(features.groups)) {
+      const row = document.createElement('div');
+      row.className = 'ps-feature-row';
+      const title = document.createElement('span');
+      title.className = 'ps-feature-title';
+      title.textContent = group.label;
+      row.append(title);
+      const buttons = document.createElement('div');
+      buttons.className = 'ps-feature-options';
+      group.options.forEach((option, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'ps-toggle';
+        button.textContent = option.name;
+        button.dataset.group = key;
+        button.dataset.index = String(index);
+        button.onclick = () => { renderer?.setFeature?.(key, index); syncFeatureButtons(); };
+        buttons.append(button);
+      });
+      row.append(buttons);
+      host.append(row);
+    }
+    syncFeatureButtons();
+  }
+
+  function syncFeatureButtons() {
+    const selection = renderer?.featureSelection;
+    for (const button of document.querySelectorAll('#ps-features .ps-toggle')) {
+      const sel = selection?.[button.dataset.group];
+      const index = Number(button.dataset.index);
+      const on = Array.isArray(sel) ? sel[index] === true : sel === index;
+      button.setAttribute('aria-pressed', String(on));
+    }
+  }
+
+  // --- 模型切换 ---
+  const modelSelect = $('ps-model');
+  if (modelSelect) {
+    for (const m of AVAILABLE_MODELS) {
+      const option = document.createElement('option');
+      option.value = m.id;
+      option.textContent = m.label;
+      modelSelect.append(option);
+    }
+    modelSelect.value = activeModelId;
+    modelSelect.onchange = async event => {
+      const ok = await switchModel(event.target.value);
+      if (!ok) event.target.value = activeModelId;
+    };
+  }
   $('ps-mode-half') && ($('ps-mode-half').onclick = () => setMode('half'));
   $('ps-mode-full') && ($('ps-mode-full').onclick = () => setMode('full'));
 
@@ -1875,3 +2082,5 @@ try {
   let lastTrace = 0;
   setInterval(() => { if (playback.busy && performance.now() - lastTrace > 700) { lastTrace = performance.now(); report({ type: 'speaking-parameters', ...renderer.snapshot() }); } }, 500);
 } catch (error) { $('loading').textContent = '模型加载失败'; view.error = error.message; report({ type: 'model-error', message: error.message, stack: error.stack }); panel(true); renderUI(); }
+
+

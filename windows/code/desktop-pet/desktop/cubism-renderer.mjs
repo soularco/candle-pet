@@ -27,6 +27,26 @@ const interactionParameters = [...headParameters, 'ParamBodyAngleX', 'ParamEyeBa
 const idleBodyDamping = 0.585;
 const idleBodyParameters = ['ParamBodyAngleX', 'ParamBodyAngleY', 'ParamBodyAngleZ'];
 const webglOwners = new Set();
+
+/**
+ * 各模型的初始参数值。
+ *
+ * 有些模型把「说明文字」「水印」做成了参数开关，默认是显示的。这里按模型目录
+ * 名给出要关掉的参数 —— 不写死在渲染逻辑里，加模型时只加一行。
+ */
+const MODEL_INITIAL_PARAMETERS = {
+  // 无尽夏：关掉台本式的使用规则文字和水印
+  wujinxia: { ParamEyeHeart3: 0, ParamEyeHeart9: 0 },
+};
+
+/** 从 assetBase（如 assets/models/wujinxia/）取出模型 id，再查上面的表。 */
+function modelInitialParameters(assetBase) {
+  if (typeof assetBase !== 'string') return null;
+  for (const id of Object.keys(MODEL_INITIAL_PARAMETERS)) {
+    if (assetBase.includes('/' + id + '/') || assetBase.includes(id + '/')) return MODEL_INITIAL_PARAMETERS[id];
+  }
+  return null;
+}
 /**
  * Vertex-level arm posing.
  *
@@ -55,6 +75,7 @@ export class JellyfishRenderer extends CubismUserModel {
     const base = new URL(this.options.assetBase ?? 'assets/local-model/', location.href);
     const read = async path => { const r = await fetch(new URL(path, base), { cache: 'no-store' }); if (!r.ok && r.status !== 0) throw new Error(`模型文件加载失败：${path}`); return r.arrayBuffer(); };
     await this.loadRig(read);
+    await this.loadFeatures(read);
     this.createRenderer(this.canvas.width, this.canvas.height);
     webglOwners.add(this);
     const renderer = this.getRenderer(); renderer.startUp(this.gl); renderer.loadShaders(new URL(this.options.shaderBase ?? 'vendor/cubism/Framework/Shaders/WebGL/', location.href).href); renderer.setIsPremultipliedAlpha(true);
@@ -119,10 +140,27 @@ export class JellyfishRenderer extends CubismUserModel {
     this.parameterIndices = new Map(Array.from(this._model.getModel().parameters.ids, (id, i) => [id, i]));
     // Optional, model-specific switches belong in the ignored local mapping.
     this.parameterOverrides = new Map(Object.entries(parameterMap.parameterOverrides ?? {}));
-    for (const [id, value] of this.parameterOverrides) {
+    // 模型自带的初始参数（关掉说明文字、水印这类部件）。合并进 overrides，
+    // 因为它每帧都会被应用 —— 只 set 一次会被 Cubism 的 update() 冲掉。
+    for (const [id, value] of Object.entries(modelInitialParameters(this.options.assetBase) ?? {})) {
+      this.parameterOverrides.set(id, value);
+    }
+    // 越界的覆盖值改成夹取，而不是抛错。
+    //
+    // 这个校验原本很严：只要有一个覆盖值不在参数范围内就抛。但覆盖表里现在有
+    // 模型自带的开关（关水印、关说明文字），这些参数并不存在于每个模型 —— 换模型
+    // 时一个越界值就会让整个切换回滚，表现为「功能面板不出现、配色不跟着变」。
+    // 缺参数的项直接丢掉，越界的夹到范围内。
+    for (const [id, value] of [...this.parameterOverrides]) {
       const index = this.parameterIndices.get(id), parameters = this._model.getModel().parameters;
-      if (index === undefined || !Number.isFinite(value) || value < parameters.minimumValues[index] || value > parameters.maximumValues[index])
-        throw new Error('Local parameter override is outside the model range');
+      if (index === undefined || !Number.isFinite(value)) {
+        this.parameterOverrides.delete(id);
+        continue;
+      }
+      const lo = parameters.minimumValues[index], hi = parameters.maximumValues[index];
+      if (value < lo || value > hi) {
+        this.parameterOverrides.set(id, Math.min(hi, Math.max(lo, value)));
+      }
     }
     const supported = new Set(automaticItems.map(item => item.expressionName));
     const appearance = new Set(presetCatalog.items.filter(item => item.category === 'appearance').map(item => item.expressionName));
@@ -130,7 +168,12 @@ export class JellyfishRenderer extends CubismUserModel {
       const name = this.settings.getExpressionName(i), b = await read(this.settings.getExpressionFileName(i));
       this.expressions.set(name, this.loadExpression(b, b.byteLength, name));
       for (const parameter of JSON.parse(new TextDecoder().decode(b)).Parameters) {
-        if (!this.parameterIndices.has(parameter.Id)) throw new Error('预设引用了模型不存在的参数');
+        // 缺参数就跳过这一条，不要抛。
+        //
+        // 表情文件是按它自己那个模型编的；换模型之后，旧表情引用的参数在新模型里
+        // 可能根本不存在。原先这里直接抛错，结果是 applyPresentationPolicy 失败、
+        // 整个切换被回滚 —— 换模型后面板配色一直停在上一个模型，就是这个原因。
+        if (!this.parameterIndices.has(parameter.Id)) continue;
         // Mouth amplitude stays on the actual playback clock, never expression easing.
         if (parameter.Id === 'ParamMouthOpenY') continue;
         this.previewParameters.add(parameter.Id);
@@ -157,7 +200,13 @@ export class JellyfishRenderer extends CubismUserModel {
       this.motionParameters = new Set(JSON.parse(new TextDecoder().decode(motion)).Curves.filter(c => c.Target === 'Parameter').map(c => c.Id));
     } else this.motionParameters = new Set();
     this.runtimeParameters = new Set([...this.expressionParameters, ...this.motionParameters, ...interactionParameters, 'ParamBodyAngleX', 'ParamEyeLOpen', 'ParamEyeROpen', parameterMap.mouthForm, 'ParamMouthOpenY']);
-    for (const id of this.runtimeParameters) { if (!this.parameterIndices.has(id)) throw new Error('动作引用了模型不存在的参数'); this.previewParameters.add(id); this.appearanceParameters.delete(id); }
+    // 缺参数的动作名直接跳过。换模型后，动作表里引用的参数名不一定都在新模型里，
+    // 抛错会让整个切换回滚（面板配色跟不上的真正原因）。
+    for (const id of this.runtimeParameters) {
+      if (!this.parameterIndices.has(id)) continue;
+      this.previewParameters.add(id);
+      this.appearanceParameters.delete(id);
+    }
     for (const [id, value] of this.parameterOverrides) this.set(id, value);
     // TEMP DRIVER PROBE - removable
     if (!globalThis.__driverRanges) {
@@ -419,8 +468,65 @@ export class JellyfishRenderer extends CubismUserModel {
    * Drawables are classified by where they sit rather than by name, because this
    * build's part ids do not survive the framework in a readable form: the two large
    * mirrored vertical strips at x[-0.31,-0.08] and x[0.05,0.28], both y[-0.11,0.53],
-   * are the sleeves, and the smaller pieces sharing those columns are the hands.
+   * are the sleeves, and the smaller pieces sharing th  /**
+   * 读取当前模型的可切换功能。
+   *
+   * 有些模型把发型、动作、呆毛这些做成参数开关，并用表情文件暴露出来
+   * （无尽夏就是这样）。安装模型时会扫一遍生成 features.json，这里读它。
+   * 没有这个文件的模型就是不支持，面板里不会出现对应控件。
    */
+  async loadFeatures(read) {
+    this.features = null;
+    try {
+      const buf = await read('features.json');
+      const parsed = JSON.parse(new TextDecoder().decode(buf));
+      if (parsed?.groups && Object.keys(parsed.groups).length) this.features = parsed;
+    } catch {
+      // 没有 features.json 很正常，不是错误
+      this.features = null;
+    }
+    this.featureSelection = {};
+    if (this.features) {
+      for (const [key, group] of Object.entries(this.features.groups)) {
+        this.featureSelection[key] = group.exclusive ? -1 : group.options.map(() => false);
+      }
+    }
+  }
+
+  /** 面板据此渲染控件。 */
+  getFeatures() { return this.features; }
+
+  /**
+   * 切换某个功能项。
+   *
+   * 互斥的组（发型、动作）先把整组归零，再点亮选中的那个，再点一次取消；
+   * 非互斥的（呆毛）就是开关。参数写进 parameterOverrides，它每帧都会被应用 ——
+   * 只 set 一次会被 Cubism 的 update() 冲掉。
+   */
+  setFeature(groupKey, optionIndex) {
+    const group = this.features?.groups?.[groupKey];
+    if (!group) return false;
+    const option = group.options[optionIndex];
+    if (!option) return false;
+
+    if (group.exclusive) {
+      const current = this.featureSelection[groupKey];
+      const next = current === optionIndex ? -1 : optionIndex;
+      for (const opt of group.options) {
+        for (const p of opt.params) this.parameterOverrides.set(p.id, 0);
+      }
+      if (next >= 0) {
+        for (const p of group.options[next].params) this.parameterOverrides.set(p.id, p.value);
+      }
+      this.featureSelection[groupKey] = next;
+    } else {
+      const on = !this.featureSelection[groupKey][optionIndex];
+      for (const p of option.params) this.parameterOverrides.set(p.id, on ? p.value : 0);
+      this.featureSelection[groupKey][optionIndex] = on;
+    }
+    return true;
+  }
+
   findArmDrawables() {
     const model = this._model;
     const out = [];

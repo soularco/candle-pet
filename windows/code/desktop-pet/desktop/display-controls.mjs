@@ -57,7 +57,7 @@ export function installDisplayControls({ get, shell, setFraming }) {
     const dx = event.screenX - drag.x, dy = event.screenY - drag.y;
     if (Math.abs(dx) + Math.abs(dy) < 3 && !drag.moved) return;
     drag.moved = true;
-    drag.value = Math.min(720, Math.max(220, drag.width + (dx + drag.ratio * dy) / (1 + drag.ratio ** 2)));
+    drag.value = Math.min(720, Math.max(72, drag.width + (dx + drag.ratio * dy) / (1 + drag.ratio ** 2)));
     shell({ type: 'resize_model', phase: 'update', width: drag.value });
   };
   handle.onpointerup = event => {
@@ -70,9 +70,11 @@ export function installDisplayControls({ get, shell, setFraming }) {
   handle.onkeydown = event => {
     if (event.key === 'Escape') { cancel(event); return }
     const step = ({ ArrowRight: 20, ArrowUp: 20, ArrowLeft: -20, ArrowDown: -20 })[event.key];
+    // 方向键同样受下限约束，别让它越过最小值。
+    const clamped = Math.max(72, Math.min(720, config.preferredWidth + (step ?? 0)));
     if (!step || event.metaKey || event.ctrlKey || event.altKey) return;
     stop(event); cancel(); shell({ type: 'resize_model', phase: 'begin' });
-    shell({ type: 'resize_model', phase: 'commit', width: config.preferredWidth + step });
+    shell({ type: 'resize_model', phase: 'commit', width: clamped });
   };
   receive(config);
   return { receive, cancel, get mode() { return config.mode } };
