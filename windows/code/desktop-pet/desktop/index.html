@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self' pet:; script-src 'self' pet: 'wasm-unsafe-eval'; style-src 'self' pet:; img-src 'self' pet: blob:; connect-src 'self' pet: blob:; media-src blob:; worker-src blob:"><title>AAAAGENT</title><link rel="stylesheet" href="style.css"></head><body>
-<main id="pet"><div id="character"><canvas id="model" aria-label="AAAAGENT桌宠，点击聊天，拖动移动"></canvas><span id="thinking-indicator" role="status" aria-live="polite" hidden><span class="thinking-orbit" aria-hidden="true"><span>✦</span></span><span>想一想…</span></span><span id="loading">AAAAGENT正在过来…</span></div><button id="work-badge" type="button" aria-live="polite" aria-controls="work-card" aria-expanded="false" hidden></button><button id="invitation" hidden></button><button id="model-resize" type="button" aria-label="拖动调整模型大小；方向键也可调整" data-resizing="false"></button><div id="capture-feedback" hidden aria-label="语音输入状态"><span id="capture-connecting" role="status">正在连接语音</span><span id="capture-wave" hidden><svg viewBox="0 0 160 24" role="img" aria-label="实时输入音量"><path id="capture-wave-path" d=""></path></svg></span></div><button id="open" aria-label="打开对话" aria-controls="drawer" aria-expanded="false">聊一会儿</button></main>
+<main id="pet"><div id="character"><canvas id="model" aria-label="AAAAGENT桌宠，点击聊天，拖动移动"></canvas><span id="thinking-indicator" role="status" aria-live="polite" hidden><span class="thinking-orbit" aria-hidden="true"><span>✦</span></span><span>想一想…</span></span><span id="loading">烛正在来哦</span></div><button id="work-badge" type="button" aria-live="polite" aria-controls="work-card" aria-expanded="false" hidden></button><button id="invitation" hidden></button><output id="ambient-bubble" hidden aria-live="polite"></output><button id="model-resize" type="button" aria-label="拖动调整模型大小；方向键也可调整" data-resizing="false"></button><div id="capture-feedback" hidden aria-label="语音输入状态"><span id="capture-connecting" role="status">正在连接语音</span><span id="capture-wave" hidden><svg viewBox="0 0 160 24" role="img" aria-label="实时输入音量"><path id="capture-wave-path" d=""></path></svg></span></div><div id="quick-bar"><button id="qb-voice-btn" type="button" title="音量" aria-label="音量">🔊</button><div id="qb-volume" hidden><input id="qb-volume-range" type="range" min="0" max="100" step="5" aria-label="音量"><output id="qb-volume-out">70</output></div><button id="qb-quiet" type="button" title="免打扰" aria-label="免打扰">🌙</button><button id="qb-console" type="button" title="打开网页控制台" aria-label="打开网页控制台">🖥</button><button id="qb-settings" type="button" title="设置" aria-label="设置">⚙</button></div><button id="open" hidden aria-label="打开对话" aria-controls="drawer" aria-expanded="false">？怎么了</button></main>
 <section id="drawer" hidden aria-label="对话面板">
- <header><div class="panel-title"><span class="presence-dot" aria-hidden="true"></span><strong>青梅竹马</strong></div><button id="management" type="button" title="打开网页控制台" aria-label="打开网页控制台">控制台</button><div id="display-controls" role="group" aria-label="展示模式"><button id="view-full" type="button" aria-pressed="true">全身</button><button id="view-half" type="button" aria-pressed="false">半身</button></div><button id="close" aria-label="收起对话">×</button></header>
+ <header><div class="panel-title"><span class="presence-dot" aria-hidden="true"></span><strong>烛</strong></div><button id="management" type="button" title="打开网页控制台" aria-label="打开网页控制台">控制台</button><div id="display-controls" role="group" aria-label="展示模式"><button id="view-full" type="button" aria-pressed="true">全身</button><button id="view-half" type="button" aria-pressed="false">半身</button></div><button id="close" aria-label="收起对话">×</button></header>
  <p id="management-notice" role="status" hidden></p>
  <p id="status" role="status">正在连接…</p>
  <section id="conversation" aria-label="对话与任务内容" tabindex="0">
@@ -12,6 +12,85 @@
  <form id="form"><label class="sr-only" for="text">想说的话</label><textarea id="text" rows="1" autocomplete="off" placeholder="想说些什么…"></textarea><button type="submit" id="send" aria-label="发送">↑</button></form>
  <footer><button id="voice">开始语音</button><button id="stop" hidden>停止</button><span id="hint">语音使用麦克风与摄像头</span><button id="quit" aria-label="退出桌宠">退出</button></footer>
  <div id="hotkey-settings"><span>输入框外按住发言 · <b id="hotkey-value">未绑定</b></span><button id="hotkey-bind" type="button">设置按键</button><button id="hotkey-clear" type="button">清除</button><span class="input-tip">Enter 发送 · Shift + Enter 换行</span></div>
+ <details id="pet-settings">
+  <summary>活泼度设置</summary>
+  <div class="pet-settings-body">
+   <label class="ps-row"><span>主动开口间隔</span>
+    <input id="ps-min" type="number" min="5" max="600" step="1" inputmode="numeric"> ~
+    <input id="ps-max" type="number" min="5" max="600" step="1" inputmode="numeric"> 秒</label>
+   <label class="ps-row"><span>空闲多久才开口</span>
+    <input id="ps-idle" type="number" min="0" max="600" step="1" inputmode="numeric"> 秒</label>
+   <label class="ps-row"><span>一句话显示</span>
+    <input id="ps-line" type="number" min="2" max="60" step="1" inputmode="numeric"> 秒</label>
+   <label class="ps-row"><span>你的称呼</span>
+    <input id="ps-name" type="text" maxlength="24" placeholder="留空则不称呼"></label>
+   <label class="ps-row ps-check"><input id="ps-quiet" type="checkbox"><span>免打扰（完全安静）</span></label>
+   <label class="ps-row ps-check"><input id="ps-quietfs" type="checkbox"><span>全屏时不打扰</span></label>
+   <label class="ps-row ps-check"><input id="ps-sfx" type="checkbox"><span>点击音效</span></label>
+   <label class="ps-row ps-check"><input id="ps-voice" type="checkbox"><span>朗读台词（本地缓存的配音）</span></label>
+   <label class="ps-row ps-check"><input id="ps-autostart" type="checkbox"><span>开机自动启动</span></label>
+   <label class="ps-row"><span>音色</span>
+    <select id="ps-voice-name">
+     <option value="Chelsie">Chelsie · 二维虚拟女友</option>
+     <option value="Bella">Bella · 活泼俏皮</option>
+     <option value="Stella">Stella · 甜甜少女</option>
+     <option value="Vivian">Vivian · 可爱带小脾气</option>
+     <option value="Momo">Momo · 调皮</option>
+     <option value="Nini">Nini · 软萌</option>
+     <option value="Bunny">Bunny · 超可爱</option>
+     <option value="Serena">Serena · 温柔</option>
+     <option value="Cherry">Cherry · 阳光</option>
+    </select></label>
+   <label class="ps-row"><span>语音音量</span>
+    <input id="ps-vol" type="range" min="0" max="100" step="5"> <output id="ps-vol-out">100</output>%</label>
+   <label class="ps-row"><span>音效音量</span>
+    <input id="ps-sfxvol" type="range" min="0" max="100" step="5"> <output id="ps-sfxvol-out">70</output>%</label>
+   <label class="ps-row"><span>朗读语速</span>
+    <input id="ps-voice-rate" type="range" min="80" max="120" step="2"> <output id="ps-voice-rate-out">100</output>%</label>
+    <label class="ps-row"><span>模型大小</span>
+     <input id="ps-scale" type="range" min="60" max="220" step="5"> <output id="ps-scale-out">100</output>%</label>
+   <p class="ps-hint" id="ps-voice-hint">换音色后需要重新合成配音（约 5 分钟）。</p>
+
+   <!-- 显示 ---------------------------------------------------------------- -->
+   <details class="ps-group" open><summary>显示</summary>
+    <label class="ps-row"><span>取景</span>
+     <button id="ps-mode-half" type="button" class="ps-toggle">半身</button>
+     <button id="ps-mode-full" type="button" class="ps-toggle">全身</button></label>
+    <p class="ps-hint">半身放大显示上半身；全身完整显示。模型大小见上方滑杆。</p>
+   </details>
+
+   <!-- 动作 ---------------------------------------------------------------- -->
+   <details class="ps-group"><summary>动作</summary>
+    <div class="ps-actions">
+     <button id="ps-preview-actions" type="button">预览全部动作</button>
+     <span class="ps-hint">依次播放全部手势，每步带说明</span>
+    </div>
+    <p class="ps-hint" id="ps-action-hint">共 22 个动作。手臂动作受模型限制，已在当前模型上禁用。</p>
+   </details>
+
+   <!-- 连接 ---------------------------------------------------------------- -->
+   <details class="ps-group"><summary>连接</summary>
+    <div class="ps-actions">
+     <button id="ps-remote-toggle" type="button">开启手机访问</button>
+    </div>
+    <p class="ps-hint" id="ps-remote-hint">同一局域网内的手机浏览器可打开聊天页，与桌面共享记忆。</p>
+   </details>
+
+   <!-- 诊断 ---------------------------------------------------------------- -->
+   <details class="ps-group"><summary>诊断</summary>
+    <div class="ps-actions">
+     <button id="ps-open-log" type="button">打开日志</button>
+     <button id="ps-about" type="button">关于</button>
+    </div>
+    <p class="ps-hint" id="ps-diagnostic-hint">出问题时把日志发出来即可定位。</p>
+   </details>
+
+   <div class="ps-actions"><button id="ps-reset" type="button">重置关系</button><span class="ps-hint">把亲密度、心情与阶段恢复到初见状态</span></div>
+   <p id="ps-state" role="status" hidden></p>
+   <div class="ps-actions"><button id="ps-save" type="button">保存</button><button id="ps-reload" type="button">重新载入</button>
+    <span class="ps-hint">保存后立即生效，无需重启</span></div>
+  </div>
+ </details>
 </section>
 <dialog id="work-records-dialog" aria-labelledby="work-records-title"><header><h2 id="work-records-title">工程记录</h2><button id="work-records-close" type="button" aria-label="关闭工程记录">×</button></header><div id="work-records-content" tabindex="0" aria-label="任务问答与执行详情"></div></dialog>
 <script src="vendor/cubism/Core/live2dcubismcore.min.js"></script><script type="module" src="build/renderer.js"></script></body></html>

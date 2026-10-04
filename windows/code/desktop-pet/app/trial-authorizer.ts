@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { EvaluationBudget } from '../core/evaluation-budget.js';
-import type { BudgetEntry } from '../core/evaluation-budget.js';
+import type { BudgetEntry, BudgetState } from '../core/evaluation-budget.js';
 import type { CallAuthorizer, CallOutcome, CallRequest } from '../providers/transport.js';
 import { readActiveTrialConfiguration, type TrialConfiguration, type TrialModel, type TrialOperation } from './trial-config.js';
 
@@ -103,7 +103,15 @@ export class TrialAuthorizer implements CallAuthorizer {
       signal.throwIfAborted();
       if (this.halted) throw new Error('Trial is stopped');
       // A missing original ledger must not silently create an empty account under an existing allowance.
-      const state = JSON.parse(await readFile(this.configuration.budgetFile, 'utf8'));
+      // With budgetMode 'unlimited' there is no allowance to protect, and demanding the file made the very
+      // first paid call fail with ENOENT - which broke intent classification and therefore all conversation.
+      let state: BudgetState;
+      try {
+        state = JSON.parse(await readFile(this.configuration.budgetFile, 'utf8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || this.configuration.budgetMode !== 'unlimited') throw error;
+        state = { batchId: this.configuration.budgetBatchId, currency: 'CNY', limitMicros: this.configuration.limitMicros, budgetMode: 'unlimited', blocked: false, entries: [] };
+      }
       if (state.batchId !== this.configuration.budgetBatchId || state.limitMicros !== this.configuration.limitMicros || !Array.isArray(state.entries)) throw new Error('Original shared trial ledger is unavailable');
       if (this.configuration.purpose !== 'user-trial') await assertReviewedUnknownCosts(state.entries, this.configuration);
       if (this.configuration.purpose !== 'user-trial' && state.entries.filter((entry: { operationId: string }) => entry.operationId.startsWith(`${prefix}${operation}:`)).length >= (this.configuration.operationLimits[operation] ?? 0)) throw new Error('Trial operation call limit reached');

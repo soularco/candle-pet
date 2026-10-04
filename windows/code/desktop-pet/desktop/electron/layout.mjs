@@ -4,7 +4,8 @@ export function fitDisplay(width, open, screen, anchor, mode = 'full') {
   const mw = Math.max(1, Math.min(width, sw - 20, (sh - 36) / aspect)), mh = mw * aspect;
   const pet = { x: clamp(anchor.x - (mw + 20) / 2, screen.x, screen.x + sw - mw - 20),
     y: clamp(anchor.y, screen.y, screen.y + sh - mh - 36), width: mw + 20, height: mh + 36 };
-  const dw = Math.min(480, sw - 20), dh = Math.min(540, sh), gap = 8;
+  // Chat drawer footprint; halved from 480x540 at the user's request.
+  const dw = Math.min(240, sw - 20), dh = Math.min(270, sh), gap = 8;
   const right = screen.x + sw - pet.x - pet.width - gap, left = pet.x - screen.x - gap;
   const below = screen.y + sh - pet.y - pet.height - gap, above = pet.y - screen.y - gap;
   const drawer = { x: clamp(pet.x + pet.width / 2 - dw / 2, screen.x, screen.x + sw - dw), y: screen.y, width: dw, height: dh };

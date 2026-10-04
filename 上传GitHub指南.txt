@@ -1,0 +1,168 @@
+════════════════════════════════════════════════════════
+ 上传到 GitHub：已完成的部分 + 你要做的部分
+════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────
+ 一、原作者是否允许修改后上传？—— 允许
+────────────────────────────────────────────────────────
+
+  原项目：AAAAGENT
+  作者：  phoiex
+  仓库：  https://github.com/phoiex/AAAAGENT
+  许可：  AAAAGENT 非商业使用及署名许可 1.0
+
+  LICENSE 第 2 条原文（英文部分最清楚）：
+
+    "You may view, run, copy, study, modify, quote and redistribute
+     covered material solely for noncommercial purposes, subject to
+     all conditions below."
+
+  ★ **明确允许 modify（修改）和 redistribute（再分发）** ✓
+
+  但必须满足以下全部条件：
+
+    ✅ 非商业用途（唯一目的限制）
+    ✅ 标明项目名 AAAAGENT
+    ✅ 保留原作者与贡献者署名
+    ✅ 提供原仓库链接 https://github.com/phoiex/AAAAGENT
+    ✅ 在**明显位置**（关于页 / 说明 / 致谢）标注
+    ✅ **说明已作修改**
+    ✅ 第三方素材（模型 / SDK）各自遵守其许可
+    ❌ 不得删除或隐藏版权声明
+    ❌ 不得暗示原作者为你的修改背书
+    ❌ 任何形式的商业使用（第 3 条，措辞很严：
+       "免费提供、改名、二次打包或修改代码，都不会免除这条限制"）
+
+  ⚠️ 这不是 MIT / Apache / OSI 开源许可，而是**非商业源码可见许可**。
+
+────────────────────────────────────────────────────────
+ 二、我已经做好的（本地全部完成）
+────────────────────────────────────────────────────────
+
+  ✅ 已写 NOTICE.md
+       出处、作者、原仓库、许可、逐项列出我们改了什么、
+       不包含什么、使用限制、"原作者如有异议立即下架"的声明
+
+  ✅ 已重写 README.md
+       顶部用引用块**醒目**标出：这是 AAAAGENT 的改良版、原作者是谁、
+       原仓库在哪、非商业、无隶属关系、未获背书
+
+  ✅ 已把 origin 改名为 upstream
+       origin   → https://github.com/soularco/candle-pet.git
+       upstream → https://github.com/phoiex/AAAAGENT.git
+       ★ 保留 upstream 既是正确做法，也是 fork 身份的证明
+
+  ✅ 已写 .gitignore，排除：
+       模型文件（.moc3 / .cdi3.json / .physics3.json / 纹理目录）
+       模型备份目录（local-model-fense-backup，约 31 MB，是另一个模型）
+       模型预览图
+       凭据（*.key / credentials / model-evaluation / user-trial）
+       个人数据（windows/.local/）
+       配音缓存（speech-cache，约 87 MB）
+       依赖（node_modules）
+       日志与临时文件
+
+  ✅ 已提交（提交号 6664664，52 个文件）
+       提交信息里也写了出处、基于的上游提交、以及我们改了什么
+
+  ✅ 提交前逐项核查通过：
+       [OK] .local/        [OK] speech-cache    [OK] *.key
+       [OK] *.moc3         [OK] *.cdi3.json     [OK] *.physics3.json
+       [OK] *.8192/        [OK] backup          [OK] node_modules/
+       [OK] model-evaluation  [OK] user-trial   [OK] *.log
+
+────────────────────────────────────────────────────────
+ 三、你要做的：推送（我这边网络到不了 GitHub）
+────────────────────────────────────────────────────────
+
+  尝试推送时的错误：
+
+    fatal: unable to access
+    'https://github.com/soularco/candle-pet.git/':
+    Recv failure: Connection was reset
+
+  这是**网络问题**（GitHub 在当前网络下连不上），不是配置问题。
+
+ ── 步骤 1：先在 GitHub 上建仓库 ──
+
+   打开 https://github.com/new
+     Repository name: candle-pet
+     Description:     A desktop companion that speaks, remembers, and forgets.
+                      Forked from AAAAGENT (https://github.com/phoiex/AAAAGENT)
+     Public / Private: 随意（许可要求署名，公开更容易满足"明显位置"）
+     ★ 不要勾选 Add a README / .gitignore / license
+       （本地已经有了，勾了会冲突）
+
+ ── 步骤 2：解决网络 ──
+
+   任选一种：
+
+   A. 用代理（推荐）
+      在 PowerShell 里设置，然后推送：
+        git config --global http.proxy http://127.0.0.1:你的端口
+        git config --global https.proxy http://127.0.0.1:你的端口
+      推送完成后可以取消：
+        git config --global --unset http.proxy
+        git config --global --unset https.proxy
+
+   B. 用 SSH 而不是 HTTPS
+      把远端改成 SSH：
+        git remote set-url origin git@github.com:soularco/candle-pet.git
+      ★ SSH 走 22 端口，有时比 HTTPS 更容易连通
+
+   C. 用 GitHub Desktop / 其他客户端推送
+
+ ── 步骤 3：推送 ──
+
+   在 D:\aaa\AAAAGENT 下执行：
+
+     git push -u origin main
+
+   第一次会要求登录：
+     · 用户名：soularco
+     · 密码：**不是账号密码**，而是 Personal Access Token
+       到 https://github.com/settings/tokens 生成一个
+       勾选 repo 权限即可
+
+ ── 步骤 4：推送后检查 ──
+
+   打开 https://github.com/soularco/candle-pet
+   确认：
+
+     ✅ 仓库首页 README 顶部有醒目的出处声明
+     ✅ NOTICE.md 存在且可读
+     ✅ LICENSE 是原版许可（没有被改掉）
+     ✅ **没有** local-model 目录、没有 .moc3、没有 .local
+     ✅ 文件数约 52 个新增（加上原版的 888 个）
+
+────────────────────────────────────────────────────────
+ 四、进一步降低纠纷风险的建议
+────────────────────────────────────────────────────────
+
+  1. 在仓库的 About 里写明
+       Description: Forked from AAAAGENT (phoiex) - noncommercial use only
+       Website: https://github.com/phoiex/AAAAGENT
+       勾选 Topics: desktop-pet, live2d, electron, fork
+
+  2. 在仓库设置里把原项目设为 "Forked from"
+      如果你是在 GitHub 网页上点 Fork 建的话会自动带上；
+      如果是手动推的，可以在 README 和 NOTICE 里保持声明（已做）
+
+  3. 不要发布任何 Release 里带模型或凭据
+
+  4. 如果收到原作者的联系，第一时间回应
+       NOTICE.md 末尾已经写了"如有异议立即下架"
+
+  5. 永远不要把这个仓库用于任何商业场景
+       包括：接单、卖课、放广告、集成进商业产品、
+             公司内部使用、付费托管
+
+────────────────────────────────────────────────────────
+ 五、一句话总结
+────────────────────────────────────────────────────────
+
+  原作者**允许**修改后上传，条件是：**非商业 + 署名 + 说明已修改**。
+  这三条我都已经落实到 README.md 和 NOTICE.md 里了，
+  剩下只差把它推上去。
+
+════════════════════════════════════════════════════════

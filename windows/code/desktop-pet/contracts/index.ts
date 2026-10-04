@@ -207,6 +207,7 @@ export type DesktopCommand =
   | { readonly type: 'acknowledge_introduction'; readonly introductionId: string }
   | { readonly type: 'start_voice'; readonly clientRequestId?: string; readonly workBinding?: WorkInputBinding; readonly wakeKeyword?: string }
   | { readonly type: 'finish_voice' | 'cancel' }
+  | { readonly type: 'ambient_speak'; readonly text: string }
   | { readonly type: 'click_invitation'; readonly invitationId: string };
 export type DesktopEvent =
   | { readonly type: 'turn'; readonly input: TurnInput }

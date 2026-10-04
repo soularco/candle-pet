@@ -19,7 +19,23 @@ const faces = new Map(automaticItems.flatMap(item => (item.emotions ?? []).map(k
 const gestures = new Map(automaticItems.flatMap(item => (item.gestures ?? []).map(key => [key, item])));
 const headParameters = [parameterMap.headYaw, parameterMap.headPitch, parameterMap.headRoll];
 const interactionParameters = [...headParameters, 'ParamBodyAngleX', 'ParamEyeBallX', 'ParamEyeBallY'];
+// How much of the idle clip's body-angle contribution survives each frame.
+// This rig's idle clips open with a fast, large body swing (the "sleep" clip
+// moves ParamBodyAngleY +5 then -2 inside 1.7s), and physics amplifies that into
+// a chest jolt at the start of every loop. Lowering this makes the idle read as
+// calm breathing. 1 disables the damping entirely.
+const idleBodyDamping = 0.585;
+const idleBodyParameters = ['ParamBodyAngleX', 'ParamBodyAngleY', 'ParamBodyAngleZ'];
 const webglOwners = new Set();
+/**
+ * Vertex-level arm posing.
+ *
+ * Off. The mechanism works, but this model's arms are single 0.64-long cloth pieces
+ * with no elbow, so a hand cannot be folded up to the face - see the notes in
+ * poseArmVertices(). Flip this to true to re-enable; the armLift values are still in
+ * the action table, so nothing else needs touching.
+ */
+const ARM_POSING_ENABLED = false;
 export class JellyfishRenderer extends CubismUserModel {
   constructor(canvas, report = () => {}, options = {}) {
     super(); this.canvas = canvas; this.report = report; this.options = options;
@@ -28,13 +44,16 @@ export class JellyfishRenderer extends CubismUserModel {
     this.interaction = new InteractionMotion(); this.elapsed = 0; this.gestureManager = new CubismExpressionMotionManager(); this.previewManager = new CubismExpressionMotionManager(); this.framing = 'full';
     // No policy yet means no automatic animation, including before backend ready.
     this.automaticIds = new Set(); this.policyRevision = -1; this.previewValues = new Map();
+    // Live inputs driven from outside the action system.
+    this.speechMouth = 0;      // mouth amplitude of locally played audio
+    this.cursorGaze = null;    // { x, y } in -1..1 toward the pointer
   }
   async load() {
     this.gl = this.canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
     if (!this.gl) throw new Error('这个窗口无法启用 WebGL');
     this.syncViewport();
     const base = new URL(this.options.assetBase ?? 'assets/local-model/', location.href);
-    const read = async path => { const r = await fetch(new URL(path, base)); if (!r.ok && r.status !== 0) throw new Error(`模型文件加载失败：${path}`); return r.arrayBuffer(); };
+    const read = async path => { const r = await fetch(new URL(path, base), { cache: 'no-store' }); if (!r.ok && r.status !== 0) throw new Error(`模型文件加载失败：${path}`); return r.arrayBuffer(); };
     await this.loadRig(read);
     this.createRenderer(this.canvas.width, this.canvas.height);
     webglOwners.add(this);
@@ -61,12 +80,35 @@ export class JellyfishRenderer extends CubismUserModel {
     };
     const settingsBuffer = await read('pet.model3.json');
     const refs = JSON.parse(new TextDecoder().decode(settingsBuffer)).FileReferences;
-    const paths = [...new Set(['pet.model3.json', refs.Moc, refs.Physics, ...refs.Expressions.map(e => e.File), ...Object.values(refs.Motions).flat().map(m => m.File)])].sort();
+    const paths = [...new Set(['pet.model3.json', refs.Moc, refs.Physics, ...refs.Expressions.map(e => e.File), ...Object.values(refs.Motions ?? {}).flat().map(m => m.File)])].sort();
     const hash = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)), byte => byte.toString(16).padStart(2, '0')).join('');
     let binding = '';
     for (const path of paths) binding += path + '\0' + await hash(await read(path)) + '\n';
     const fingerprint = await hash(new TextEncoder().encode(binding));
-    if (fingerprint !== presetCatalog.modelFingerprint) throw new Error('模型与预设目录版本不一致');
+    // MODEL_FP_DEBUG - only reported when the values disagree, so a healthy load
+    // stays silent. Kept because it is what found the stale-cache problem.
+    if (fingerprint !== presetCatalog.modelFingerprint) {
+      const parts = [];
+      for (const path of paths) parts.push(path + '=' + (await hash(await read(path))).slice(0, 16));
+      this.report({ type: 'model-fingerprint-debug',
+        computed: fingerprint,
+        expected: presetCatalog.modelFingerprint,
+        bindingLength: binding.length,
+        fileCount: paths.length,
+        files: parts });
+    }
+    // MODEL_FP_MISMATCH - warn, do not throw.
+    //
+    // A mismatch means the catalog describes a different rig. Throwing used to take
+    // the whole renderer down, which cost the user every action, reaction and line of
+    // dialogue - far more than the stale catalog actually breaks. The policy layer
+    // now skips entries this rig cannot satisfy, so loading can continue.
+    if (fingerprint !== presetCatalog.modelFingerprint) {
+      this.policyValid = false;
+      this.automaticIds.clear();
+      this.report({ type: 'model-fingerprint-mismatch',
+        expected: presetCatalog.modelFingerprint, computed: fingerprint });
+    }
     this.settings = new CubismModelSettingJson(settingsBuffer, settingsBuffer.byteLength);
     this.loadModel(await read(this.settings.getModelFileName()), true);
     if (!this._model) throw new Error('Cubism 未能解析模型');
@@ -94,15 +136,64 @@ export class JellyfishRenderer extends CubismUserModel {
         if (appearance.has(name)) this.appearanceParameters.add(parameter.Id);
       }
     }
-    const motion = await read(this.settings.getMotionFileName('Idle', 0)); this.idle = this.loadMotion(motion, motion.byteLength, 'Idle'); this.idle.setLoop(true); this.idle.setEffectIds([], []);
-    this.motionParameters = new Set(JSON.parse(new TextDecoder().decode(motion)).Curves.filter(c => c.Target === 'Parameter').map(c => c.Id));
+    // Loop the calmest available Idle motion. Index 0 is frequently a short
+    // expression clip (this rig ships a 1.88s "surprise" there), and looping a
+    // clip that short makes the body rise and fall roughly 32 times a minute,
+    // which reads as heavy, exaggerated breathing. The longest clip is the
+    // slowest and most natural idle, so pick that instead.
+    // Rig packs that ship no motions at all are still usable: blinking, breathing
+    // and the procedural head/body sway do not need one.
+    const idleCount = this.settings.getMotionCount('Idle');
+    let motion = null, idleDuration = -1;
+    for (let index = 0; index < idleCount; index++) {
+      const candidate = await read(this.settings.getMotionFileName('Idle', index));
+      const duration = JSON.parse(new TextDecoder().decode(candidate)).Meta?.Duration ?? 0;
+      if (duration > idleDuration) { idleDuration = duration; motion = candidate; }
+    }
+    if (motion) {
+      this.idle = this.loadMotion(motion, motion.byteLength, 'Idle'); this.idle.setLoop(true); this.idle.setEffectIds([], []);
+      this.motionParameters = new Set(JSON.parse(new TextDecoder().decode(motion)).Curves.filter(c => c.Target === 'Parameter').map(c => c.Id));
+    } else this.motionParameters = new Set();
     this.runtimeParameters = new Set([...this.expressionParameters, ...this.motionParameters, ...interactionParameters, 'ParamBodyAngleX', 'ParamEyeLOpen', 'ParamEyeROpen', parameterMap.mouthForm, 'ParamMouthOpenY']);
     for (const id of this.runtimeParameters) { if (!this.parameterIndices.has(id)) throw new Error('动作引用了模型不存在的参数'); this.previewParameters.add(id); this.appearanceParameters.delete(id); }
     for (const [id, value] of this.parameterOverrides) this.set(id, value);
+    // TEMP DRIVER PROBE - removable
+    if (!globalThis.__driverRanges) {
+      globalThis.__driverRanges = ['Param85', 'Param86', 'Param87', 'Param23', 'Param2', 'Param89'].map(id => {
+        const i = this._model.getParameterIndex(CubismFramework.getIdManager().getId(id));
+        return i < 0 ? { id, missing: true }
+          : { id, min: this._model.getParameterMinimumValue(i), max: this._model.getParameterMaximumValue(i), def: this._model.getParameterDefaultValue(i) };
+      });
+      globalThis.__setDriver = (id, v) => { this.set(id, v); };
+    }
     this._model.update();
     this.defaults = Array.from(this._model.getModel().parameters.values);
   }
-  set(name, value) { const m = this._model; const id = CubismFramework.getIdManager().getId(name); const i = m.getParameterIndex(id); if (i >= 0 && i < m.getParameterCount()) m.setParameterValueByIndex(i, value); }
+  /**
+   * Write a parameter, ignoring names this rig does not have.
+   *
+   * The action table and the presets both name parameters directly (ParamAngleX,
+   * Param85, ...). A different model will not have all of them, and that must not be
+   * fatal: the actions that can run still run. Unknown names are counted once so the
+   * mismatch is visible in the log rather than silent.
+   */
+  set(name, value) {
+    const m = this._model;
+    const id = CubismFramework.getIdManager().getId(name);
+    const i = m.getParameterIndex(id);
+    if (i >= 0 && i < m.getParameterCount()) { m.setParameterValueByIndex(i, value); return true; }
+    this.countMissing(name);
+    return false;
+  }
+  /** Record names this rig lacks, once each, so switching models is diagnosable. */
+  countMissing(name) {
+    if (!this._missingParameters) this._missingParameters = new Set();
+    if (this._missingParameters.has(name)) return;
+    this._missingParameters.add(name);
+    if (this._missingParameters.size === 1) {
+      this.report({ type: 'model-parameter-missing', message: name });
+    }
+  }
   get(name) { return this._model.getParameterValueById(CubismFramework.getIdManager().getId(name)); }
   setAutomaticPolicy(policy) {
     // The host sends this sentinel at a backend-generation boundary. Other
@@ -177,9 +268,17 @@ export class JellyfishRenderer extends CubismUserModel {
     this._model.getModel().parameters.values.set(this.previewMode ? this.previewBaseline : this.defaults);
     const enabled = id => this.previewMode ? this.previewSelection?.id === id : this.automaticIds.has(id);
     const workActive=enabled('proc-work-focus') && (this.previewMode || workFocus && ['idle','error'].includes(view.state));
-    if (enabled('motion-idle-0')) {
+    if (this.idle && enabled('motion-idle-0')) {
       if (this._motionManager.isFinished()) this._motionManager.startMotionPriority(this.idle, false, 1);
       this._motionManager.updateMotion(this._model, delta);
+      // Ease the clip's body angles back toward the neutral pose. The
+      // interaction layer adds its own body sway further down, so that stays
+      // responsive; only the idle clip's jolt is softened.
+      if (idleBodyDamping < 1) for (const id of idleBodyParameters) {
+        const index = this.parameterIndices.get(id);
+        if (index === undefined) continue;
+        this.set(id, this.defaults[index] + (this.get(id) - this.defaults[index]) * idleBodyDamping);
+      }
     } else this._motionManager.stopAllMotions();
     if (enabled('proc-blink')) this.blink.updateParameters(this._model, delta);
     const rawExpression = workActive ? {emotion:'neutral',intensity:0,delivery:'',gesture:null} : view.invitation && view.state === 'idle' ? { emotion: 'neutral', intensity: 0, delivery: '', gesture: view.invitation.gesture } : view.expression;
@@ -210,6 +309,14 @@ export class JellyfishRenderer extends CubismUserModel {
     const active = !this.previewMode && view.state === 'speaking';
     const movement = this.interaction.sample({ now, delta, elapsed: this.elapsed, state: this.previewMode ? 'idle' : interactionState,
       head: enabled('proc-head')||workActive, body: enabled('proc-body')||workActive, blink: enabled('proc-blink')||workActive, work:workActive, reducedMotion:globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true });
+    if (this._physics) this._physics.evaluate(this._model, delta);
+    // Head, gaze and blink MUST be applied after the physics step.
+    //
+    // This rig's physics chain resets ParamAngle* and ParamEye* to zero on every
+    // evaluate(), so setting them beforehand was silently erased each frame: the
+    // character could only ever move its mouth and the projection offset, which
+    // is exactly what "动作看不出来" looked like. The body channel below already
+    // ran after physics; the head had simply been left on the wrong side.
     if (enabled('proc-head') || workActive) {
       this.set(parameterMap.headYaw, movement.yaw); this.set(parameterMap.headPitch, movement.pitch); this.set(parameterMap.headRoll, movement.roll);
       this.set('ParamEyeBallX', movement.gazeX); this.set('ParamEyeBallY', movement.gazeY);
@@ -218,16 +325,225 @@ export class JellyfishRenderer extends CubismUserModel {
       this.set('ParamEyeLOpen', Math.min(this.get('ParamEyeLOpen'), 1 - movement.blink * .95));
       this.set('ParamEyeROpen', Math.min(this.get('ParamEyeROpen'), 1 - movement.blink * .95));
     }
-    if (this._physics) this._physics.evaluate(this._model, delta);
+    // Eye contact with the cursor. A scripted action that moves the gaze itself
+    // wins; otherwise the eyes follow the pointer and the whole head leans toward
+    // it, which reads as attention without fighting the action layer.
+    //
+    // The curve expands the middle of the range (most cursor positions sit at
+    // |x| ~ 0.3-0.6), and the head gains are close to this rig's +/-10 degree
+    // clamp so the turn is unmistakable rather than a couple of degrees.
+    // Ease the applied gaze toward the target the main process reported. Without
+    // this the head stepped every time the 2 Hz system poll landed, which is the
+    // stutter that made cursor tracking look choppy.
+    if (this.cursorGazeTarget) {
+      if (!this.cursorGaze) this.cursorGaze = { ...this.cursorGazeTarget };
+      else {
+        // ~110 ms time constant: fast enough that the eyes feel attached to the
+        // pointer, slow enough to hide the 10 Hz sampling grid.
+        const k = Math.min(1, delta * 9);
+        this.cursorGaze.x += (this.cursorGazeTarget.x - this.cursorGaze.x) * k;
+        this.cursorGaze.y += (this.cursorGazeTarget.y - this.cursorGaze.y) * k;
+      }
+    }
+    if (this.cursorGaze && !this.previewMode && (enabled('proc-head') || workActive)) {
+      const scripted = Math.abs(movement.gazeX ?? 0) + Math.abs(movement.gazeY ?? 0) > 0.02;
+      // An action that drives the eyes itself used to cancel the cursor entirely,
+      // which is what made a gesture "interrupt the following". It still gets
+      // priority, but a share of the tracking survives so the pet never looks like
+      // it stopped paying attention.
+      const share = scripted ? .3 : 1;
+      const shape = v => Number.isFinite(v) ? Math.sign(v) * Math.pow(Math.abs(v), 0.62) : 0;
+      const gx = shape(this.cursorGaze.x) * share, gy = shape(this.cursorGaze.y) * share;
+      if (!scripted) {
+        this.set('ParamEyeBallX', gx);
+        this.set('ParamEyeBallY', -gy * .85);
+      }
+      this.set(parameterMap.headYaw, this.get(parameterMap.headYaw) + gx * 16);
+      this.set(parameterMap.headPitch, this.get(parameterMap.headPitch) - gy * 13);
+      this.set(parameterMap.headRoll, this.get(parameterMap.headRoll) + gx * -5.5);
+      // Lean the body toward the pointer too. The head reaches this rig's +/-30
+      // degree range near the screen edges, and the body channel keeps the pose
+      // reading as "turning to look" past that point.
+      this.set('ParamBodyAngleX', this.get('ParamBodyAngleX') + gx * 8);
+      this.set('ParamBodyAngleZ', this.get('ParamBodyAngleZ') + gx * -3);
+    }
+    // Whole-sprite motion for ambient actions. This model clamps its head angle
+    // parameters to +/-10 degrees, so rotating alone barely reads; shifting the
+    // projection is what makes an action obvious. Values are in projection units
+    // and are applied in syncViewport() below.
+    this.ambientPose = this.previewMode ? null : { x: movement.offsetX || 0, y: movement.offsetY || 0, zoom: movement.zoom || 0 };
     // Deliberate body movement layers after this model's physics; mouth remains last.
     if (enabled('proc-body') || workActive) this.set('ParamBodyAngleX', this.get('ParamBodyAngleX') + movement.body);
     if (this.previewMode) this.blendParameters(this.previewParameters, this.previewValues, delta);
     // This asset's MouthForm2 is a smile shape; only MouthOpenY receives output amplitude.
     this.set(parameterMap.mouthForm, face === '星星眼' ? .7 : face === '脸红' ? .25 : 0);
-    this.set('ParamMouthOpenY', active ? Math.min(1, Math.sqrt(view.mouth) * 1.9) : 0);
+    // Yawn / sigh open the mouth through the ambient action channel; speech stays
+    // additive so an action can never swallow a talking mouth. `speechMouth` is
+    // the live amplitude of locally played audio.
+    this.set('ParamMouthOpenY', Math.min(1, (active ? Math.min(1, Math.sqrt(view.mouth) * 1.9) : 0) + (movement.mouth || 0) + (this.speechMouth || 0)));
     for (const [id, value] of this.parameterOverrides) this.set(id, value);
+    // Rig pose parameters from an ambient action (抬手 / 生气 / 睡觉 …). They use
+    // the model's own 0..100 range and are applied last so nothing overwrites them.
+    // The interaction object is consulted as well as the sampled result: the
+    // channels live on the former, and reading only the latter silently dropped them.
+    const switches = movement.switches ?? this.interaction?.switches ?? [];
+    if (switches.length) for (const item of switches) this.set(item.id, item.value);
+    // Limb drivers, written after the solver so they survive this frame. The
+    // physics chains then carry the motion forward naturally.
+    const phys = movement.phys ?? this.interaction?.phys ?? [];
+    if (phys.length) {
+      for (const item of phys) {
+        if (item && Number.isFinite(item.value)) this.set(item.id, item.value);
+      }
+    }
     this._model.update();
+    // Between update() and draw(): the only window where a vertex write survives,
+    // because update() recomputes every drawable's positions.
+    if (ARM_POSING_ENABLED) this.poseArmVertices(movement);
     this.draw();
+  }
+  /**
+   * Discover the arm drawables once, by bounding box.
+   *
+   * The measurements were unambiguous: this model's twenty arm parameters, and the
+   * three physics drivers that feed them, are named and read/write - yet none of
+   * them displaces a single vertex. The arms are static art; only the head, face and
+   * body sway are rigged.
+   *
+   * The vertices themselves ARE reachable. CubismModel.getDrawableVertexPositions()
+   * returns the live Float32Array from model.drawables.vertexPositions, not a copy,
+   * so writing to it moves the part.
+   *
+   * Drawables are classified by where they sit rather than by name, because this
+   * build's part ids do not survive the framework in a readable form: the two large
+   * mirrored vertical strips at x[-0.31,-0.08] and x[0.05,0.28], both y[-0.11,0.53],
+   * are the sleeves, and the smaller pieces sharing those columns are the hands.
+   */
+  findArmDrawables() {
+    const model = this._model;
+    const out = [];
+    if (!model?.getDrawableCount) return out;
+    for (let i = 0; i < model.getDrawableCount(); i++) {
+      const v = model.getDrawableVertices(i);
+      if (!v || v.length < 8) continue;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (let k = 0; k < v.length; k += 2) {
+        if (v[k] < minX) minX = v[k];
+        if (v[k] > maxX) maxX = v[k];
+        if (v[k + 1] < minY) minY = v[k + 1];
+        if (v[k + 1] > maxY) maxY = v[k + 1];
+      }
+      const cx = (minX + maxX) / 2, w = maxX - minX, h = maxY - minY;
+      // Tall AND clearly off-centre. Dumping every drawable of every part (part
+      // names are reachable via CubismId.getString) showed exactly two pieces on the
+      // whole rig satisfying both:
+      //
+      //   Part16 上衣  #111 cx=-0.192 w=0.231 y[-0.11,0.53] h=0.64   left sleeve
+      //                #110 cx=+0.164 w=0.230 y[-0.11,0.53] h=0.64   right sleeve
+      //   Part20 后发  #6 cx=-0.211 h=0.42 n=4, #7 cx=+0.171 h=0.42 n=4
+      //
+      // Those two hair strands are tall and off-centre too, and the previous filter
+      // selected them - four-vertex slivers that swept across the face. The vertex
+      // count is what separates them from a real sleeve.
+      if (h < 0.5) continue;
+      if (w > 0.30) continue;
+      if (Math.abs(cx) < 0.14) continue;
+      if (v.length / 2 < 32) continue;
+      out.push({ index: i, side: cx < 0 ? -1 : 1, span: h });
+    }
+    return out;
+  }
+  /**
+   * Rotate each arm about its shoulder by the requested amount.
+   *
+   * Rotation about a shoulder is what makes an arm read as raised rather than as a
+   * picture that slid sideways.
+   *
+   * @param movement sampled movement; armLift is in degrees, positive raises.
+   */
+  poseArmVertices(movement) {
+    // Disabled for now.
+    //
+    // The vertex write itself works - measuring the sleeves during bothArmsUp showed
+    // the right one move from x[0.052,0.294] to x[0.144,0.769] - and the selection is
+    // now exact (#110 and #111, the two sleeves, with every hair strand excluded).
+    // What it cannot do is fold an arm: each sleeve is one 0.64-long piece of cloth
+    // with no elbow, so a hand cannot be brought to the face. Rotating rigidly threw
+    // the cuff outside the silhouette; bending only moved the lower half.
+    //
+    // Set ARM_POSING_ENABLED to true to bring it back. The armLift values stay in the
+    // action table, so nothing else has to change.
+    if (!ARM_POSING_ENABLED) return;
+    const raw = movement?.armLift ?? this.interaction?.armLift ?? 0;
+    const deg = Number.isFinite(raw) ? raw : 0;
+    if (!this._armDrawables) this._armDrawables = this.findArmDrawables();
+    if (Math.abs(deg) < 0.2) return;
+    const model = this._model;
+    // Bend the sleeve rather than swinging it rigidly.
+    //
+    // Measuring the vertices during bothArmsUp showed the write works - the right
+    // sleeve went from x[0.052,0.294] to x[0.144,0.769] - but it also showed why it
+    // looked wrong: a sleeve is a 0.64-long piece of cloth, and rotating all of it
+    // about the shoulder threw the cuff out to x=0.77 on a character only ±0.36 wide.
+    //
+    // A real arm bends, so the rotation is graded along the sleeve: nothing at the
+    // shoulder, the full angle at the cuff. Rigid rotation is this with the gradient
+    // removed. The pivot is taken from the rest pose so it does not drift.
+    for (const arm of this._armDrawables) {
+      const v = model.getDrawableVertices(arm.index);
+      if (!v) continue;
+      if (arm.pivotY === undefined) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let k = 0; k < v.length; k += 2) {
+          if (v[k] < minX) minX = v[k];
+          if (v[k] > maxX) maxX = v[k];
+          if (v[k + 1] < minY) minY = v[k + 1];
+          if (v[k + 1] > maxY) maxY = v[k + 1];
+        }
+        arm.pivotX = (minX + maxX) / 2;
+        arm.pivotY = maxY;
+        arm.span = (maxY - minY) || 1;
+        arm.rest = Float32Array.from(v);
+      }
+      const px = arm.pivotX, py = arm.pivotY, span = arm.span, rest = arm.rest;
+      for (let k = 0; k < v.length; k += 2) {
+        // Take the offset from the sleeve's OWN pivot. Using the absolute x as the
+        // offset put the centre of rotation at x=0, the body's midline, so the sleeve
+        // pivoted around the spine and swept across the body.
+        const dx = rest[k] - px, dy = rest[k + 1] - py;
+        // 0 at the shoulder, 1 at the cuff.
+        const t = Math.min(1, Math.max(0, -dy / span));
+        // Scaled to 45% of the requested angle. The sleeve is 0.64 long and the
+        // character only ±0.36 wide, so a full 90-degree rotation threw the cuff
+        // outside the silhouette.
+        const rad = (deg * 0.45 * arm.side * t * Math.PI) / 180;
+        const c = Math.cos(rad), sn = Math.sin(rad);
+        v[k] = px + dx * c - dy * sn;
+        v[k + 1] = py + dx * sn + dy * c;
+      }
+    }
+  }
+  /** Play a short ambient action (nod / tilt / lookAway / perk / sway / breathe).
+   *  Returns false for unknown names so a bad config entry is harmless. */
+  playAmbient(action) { return this.interaction?.play(action, performance.now()) === true; }
+  /**
+   * Live mouth amplitude (0..1) for audio this renderer plays itself, such as the
+   * cached ambient clips. Those do not go through the app playback controller, so
+   * without this the character spoke with a closed mouth.
+   */
+  setSpeechAmplitude(value) { this.speechMouth = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0; }
+  /**
+   * Where the cursor is, as -1..1 across the pet. Eye contact is the single
+   * cheapest thing that makes a character look alive, and it also makes the pet
+   * feel like it is paying attention to whoever is using the computer.
+   *
+   * This is a TARGET. The system state arrives about twice a second, and applying
+   * it straight made the head move in visible steps; updateView() eases the
+   * applied gaze toward it so the motion reads as continuous.
+   */
+  setCursorGaze(x, y) {
+    const clamp = v => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    this.cursorGazeTarget = { x: clamp(x), y: clamp(y) };
   }
   setFraming(mode) {
     if (!['full', 'half'].includes(mode) || this.framing === mode && this.projection) return;
@@ -238,6 +554,10 @@ export class JellyfishRenderer extends CubismUserModel {
     if (!this.canvas) return;
     // A bounded 2x canvas also antialiases the large supplied textures on 1x screens.
     // No mip chain is allocated for the 8192/4096 texture sources.
+    // A bounded 2x canvas also antialiases the large supplied textures on 1x
+    // screens; no mip chain is allocated for the 8192 source. Measured: dropping
+    // to 1.5x changed nothing (41 vs 42 fps), so the frame rate is capped by the
+    // compositor for this transparent always-on-top window, not by pixel count.
     const dpr = Math.max(2, globalThis.devicePixelRatio || 1);
     const limit = this.gl?.getParameter(this.gl.MAX_RENDERBUFFER_SIZE) || 4096;
     const scale = Math.min(dpr, limit / Math.max(1, this.canvas.clientWidth, this.canvas.clientHeight));
@@ -250,8 +570,24 @@ export class JellyfishRenderer extends CubismUserModel {
     if (!this._modelMatrix) return;
     const zoom = this.framing === 'half' ? 3.2 : 1;
     this.projection = new CubismMatrix44();
-    this.projection.scale(height / width * zoom, zoom); this.projection.multiplyByMatrix(this._modelMatrix);
-    if (this.framing === 'half') this.projection.translateY(-1.35);
+    const pose = this.ambientPose;
+    // Ambient scaling happens before the base scale so the framed half-body view
+    // keeps its anchor; a zoom of 0.05 is a visible five percent swell.
+    this.projection.scale(height / width * zoom * (1 + (pose?.zoom ?? 0)), zoom * (1 + (pose?.zoom ?? 0)));
+    this.projection.multiplyByMatrix(this._modelMatrix);
+    // translateX/translateY ASSIGN the matrix translation rather than adding to
+    // it. The half-body framing therefore has to own the vertical position and
+    // fold the ambient pose in: previously the +/-0.1 idle sway ran afterwards
+    // and overwrote the framing's -1.6 on every frame, which left the camera
+    // centred on the model and showed the skirt instead of the upper body.
+    const poseX = pose?.x ?? 0, poseY = pose?.y ?? 0;
+    if (this.framing === 'half') {
+      this.projection.translateX(poseX);
+      this.projection.translateY((-1.60) + poseY);
+    } else if (poseX || poseY) {
+      // The full-body framing keeps whatever offset the model matrix established.
+      this.projection.translate(poseX, poseY);
+    }
   }
   draw() {
     this.syncViewport();

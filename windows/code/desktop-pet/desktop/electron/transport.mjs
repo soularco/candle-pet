@@ -7,13 +7,19 @@ export class BackendConnection {
   state = 'disconnected';
   child = null;
   closing = new Set();
-  constructor({ onState, onMessage, timeoutMs = 15000, shutdownTimeoutMs = 10000, limit = 64 * 1024 * 1024 }) {
+  // A cold backend start opens SQLite and re-verifies fingerprints; on a slow
+  // disk (or with real-time antivirus scanning) that can exceed 15 seconds and
+  // the pet then reports "对话服务连接失败" even though the backend is healthy.
+  constructor({ onState, onMessage, timeoutMs = 60000, shutdownTimeoutMs = 10000, limit = 64 * 1024 * 1024 }) {
     Object.assign(this, { onState, onMessage, timeoutMs, shutdownTimeoutMs, limit });
+    /** Messages that arrived before backend_ready; replayed once it lands. */
+    this.pendingMessages = [];
   }
   start(executable, args, env = process.env) {
     this.close();
     const generation = ++this.generation;
     this.state = 'connecting';
+    this.pendingMessages.length = 0;
     this.onState({ generation, state: this.state, canRetry: true });
     let child;
     try { child = spawn(executable, args, { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
@@ -42,7 +48,21 @@ export class BackendConnection {
         if (message.channel === 'backend_ready') {
           if (this.state !== 'connecting') continue;
           clearTimeout(this.deadline); this.state = 'ready';
-        } else if (this.state !== 'ready') continue;
+          // The backend announces its presentation policy BEFORE backend_ready,
+          // and everything that arrived while connecting used to be dropped. That
+          // silently discarded the policy, leaving automaticIds empty so the
+          // character barely moved. Replay the queued messages now that the
+          // handshake is complete.
+          const queued = this.pendingMessages.splice(0);
+          for (const early of queued) {
+            this.onMessage(early, generation);
+            if (!this.live(generation)) return;
+          }
+        } else if (this.state !== 'ready') {
+          this.pendingMessages.push(message);
+          if (this.pendingMessages.length > 200) this.pendingMessages.shift();
+          continue;
+        }
         this.onMessage(message, generation);
         if (!this.live(generation)) return;
       }

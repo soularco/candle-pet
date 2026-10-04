@@ -16,7 +16,10 @@ function localRefusal(error: unknown): string {
     return '调用未发送：当前阶段的调用次数已用完。';
   if (['Budget is blocked pending reconciliation', 'Trial is stopped pending unknown-cost reconciliation', 'Trial is stopped'].includes(message))
     return '调用未发送：阶段已停止或费用尚待核对。';
-  return '调用未发送：本地配置、凭据或调用条件未通过检查。';
+  // The generic branch used to hide the reason entirely, which made a refused
+  // voice call impossible to diagnose. Keep the operator-facing sentence first
+  // and append the underlying message for the log.
+  return message ? `调用未发送：本地配置、凭据或调用条件未通过检查。（原因：${message}）` : '调用未发送：本地配置、凭据或调用条件未通过检查。';
 }
 /** In-process observations only. No provider probe or private message body is retained. */
 export class ManagementRuntime {

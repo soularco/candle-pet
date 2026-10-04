@@ -26,6 +26,16 @@ export async function verifyTrialRuntime(configuration: TrialConfiguration): Pro
   }
 }
 
+// Chromium cannot initialise its sandbox on some Windows machines (security
+// software, virtual display drivers such as Sunlogin / Oray IDD, or an elevated
+// process). Without these switches the desktop process dies before any
+// JavaScript runs, which surfaces as "试用程序未正常退出". Override the
+// defaults with the PET_ELECTRON_FLAGS environment variable.
+function electronFlags() {
+  const custom = process.env.PET_ELECTRON_FLAGS;
+  if (custom !== undefined) return custom.split(/\s+/).filter(Boolean);
+  return process.platform === 'win32' ? ['--no-sandbox', '--disable-gpu', '--disable-gpu-compositing'] : [];
+}
 export async function prepareTrialLaunch(projectRoot: string, nodePath: string, environment: NodeJS.ProcessEnv = {}) {
   const files = trialFiles(projectRoot);
   const configuration = await readActiveTrialConfiguration(files.configFile, files.activationFile);
@@ -39,7 +49,7 @@ export async function prepareTrialLaunch(projectRoot: string, nodePath: string, 
   return {
     version: configuration.sourceRevision,
     executable: electron ? createRequire(import.meta.url)('electron') as string : resolve(desktop, 'build/星月陪伴.app/Contents/MacOS/DesktopPet'),
-    arguments: [...(electron ? [resolve(desktop, 'electron/main.mjs')] : []), '--root', desktop, '--backend', resolve(projectRoot, 'code/desktop-pet/dist/app/trial-backend.js'), '--node', nodePath],
+    arguments: [...(electron ? [resolve(desktop, 'electron/main.mjs')] : []), '--root', desktop, '--backend', resolve(projectRoot, 'code/desktop-pet/dist/app/trial-backend.js'), '--node', nodePath, ...electronFlags()],
     environment: { ...environment, ELECTRON_RUN_AS_NODE: undefined, PET_TRIAL_CONFIG: files.configFile, PET_TRIAL_ACTIVATION: files.activationFile },
   };
 }

@@ -41,7 +41,39 @@ foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.Security
 }
 exit 0
 `;
+/**
+ * Result cache for the Windows ACL probe.
+ *
+ * Every probe spawns PowerShell, which costs about 300 ms. Startup used to run
+ * one probe per credential file per settings revision being validated, so the
+ * same handful of files was checked ten-plus times and the pet spent ten seconds
+ * of its launch doing work nobody could see. The cache is keyed on the file's
+ * modification AND change times: on Windows the change time is updated whenever
+ * a DACL is edited, so a permission change still invalidates the entry.
+ */
+const aclVerdicts = new Map<string, { mtimeMs: number; ctimeMs: number; size: number }>();
+
+function aclVerdictFresh(key: string, filename: string): boolean {
+  const cached = aclVerdicts.get(key);
+  if (!cached) return false;
+  try {
+    const info = lstatSync(filename);
+    return info.mtimeMs === cached.mtimeMs && info.ctimeMs === cached.ctimeMs && info.size === cached.size;
+  } catch { return false; }
+}
+
+function rememberAclVerdict(key: string, filename: string): void {
+  try {
+    const info = lstatSync(filename);
+    aclVerdicts.set(key, { mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, size: info.size });
+    // Bound the map; a session never legitimately holds thousands of entries.
+    if (aclVerdicts.size > 512) aclVerdicts.delete(aclVerdicts.keys().next().value as string);
+  } catch { /* an unreadable file simply will not be cached */ }
+}
+
 function windowsAcl(filename: string, action: 'check' | 'restrict'): void {
+  const cacheKey = action + '\u0000' + resolve(filename);
+  if (aclVerdictFresh(cacheKey, filename)) return;
   const systemRoot = process.env.SystemRoot || 'C:\\Windows';
   try { execFileSync(win32.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(aclScript, 'utf16le').toString('base64')],
@@ -54,6 +86,7 @@ function windowsAcl(filename: string, action: 'check' | 'restrict'): void {
       : failure.code === 'ETIMEDOUT' ? 'timeout' : 'powershell_failure';
     throw Error(`Windows could not verify or restrict this owned file (${reason}). Check its owner and access permissions.`);
   }
+  rememberAclVerdict(cacheKey, filename);
 }
 /** Metadata only. No credential contents are read. Windows checks SID-based DACLs. */
 export function isPrivateFileSync(filename: string, opened?: Stats): boolean {

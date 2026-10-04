@@ -82,6 +82,12 @@ export function parseDesktopCommand(value: unknown): DesktopCommand {
       return { type: 'start_voice', ...(binding ? {workBinding:binding}:{}), ...(command.clientRequestId === undefined ? {} : { clientRequestId: command.clientRequestId as string }) };
     }
     case 'finish_voice': case 'cancel': return { type: command.type };
+    // Ambient small talk is local preset text, but the user asked for it to be
+    // spoken with the cloud voice, so it rides the existing work-speech path
+    // (one short notice, synthesized and played outside conversation history).
+    case 'ambient_speak':
+      if (typeof command.text !== 'string' || !command.text.trim() || command.text.length > 300 || command.text.includes('\0')) throw new Error('Invalid ambient speech');
+      return { type: 'ambient_speak', text: command.text };
     case 'click_invitation': if (typeof command.invitationId !== 'string' || !command.invitationId) throw new Error('Missing invitation ID'); return { type: command.type, invitationId: command.invitationId };
     default: throw new Error('Unsupported desktop command');
   }
@@ -146,6 +152,12 @@ export class BackendSession {
           }
         }
         if (['cancel','submit_text','start_voice','click_invitation'].includes(command.type)) this.workSpeech.onInput();
+        if (command.type === 'ambient_speak') {
+          // A stable id per line keeps the work-speech de-duplication from
+          // dropping a line the user has already heard once this session.
+          this.notifyWork({ id: `ambient:${command.text}`, kind: 'local_control', spokenText: command.text, executor: 'harness' });
+          return;
+        }
         if (command.type === 'acknowledge_introduction') {
           if (!this.profile) throw new Error('Companion profile unavailable');
           this.profile.acknowledgeIntroduction(command.introductionId);

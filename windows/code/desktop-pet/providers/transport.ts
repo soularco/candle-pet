@@ -44,6 +44,29 @@ export class ProviderRequestFailure extends Error {
 
 export class ProviderTransport {
   constructor(private readonly fetcher: typeof fetch = fetch) {}
+  /**
+   * Connection-stage failures only. These prove no request bytes reached the
+   * provider (headersMs stayed null), so retrying cannot double-bill: DNS could
+   * not resolve, the TCP connect timed out, or the port refused the connection.
+   * A timeout *after* the request was sent is deliberately NOT retried.
+   */
+  static readonly RETRYABLE_CAUSES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT']);
+  /** Retry a request that could not even open a connection. */
+  async #connect(endpoint: string, apiKey: string, body: JsonRecord, signal: AbortSignal): Promise<Response> {
+    const payload = JSON.stringify(body);
+    const init = { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: payload, signal, redirect: 'error' as const };
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.fetcher(endpoint, init); }
+      catch (error) {
+        const cause = (error as { cause?: { code?: unknown } })?.cause?.code;
+        const code = typeof cause === 'string' ? cause : null;
+        if (signal.aborted || attempt >= 2 || !code || !ProviderTransport.RETRYABLE_CAUSES.has(code)) throw error;
+        // Short backoff; the caller's own AbortSignal still bounds the wait.
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        checkAbort(signal);
+      }
+    }
+  }
   async request(config: EndpointConfig, scope: TurnScope, operation: ProviderOperation, body: JsonRecord, signal: AbortSignal, textCharacters?: number, audioSeconds?: number): Promise<JsonRecord> {
     checkAbort(signal);
     const endpoint = new URL(config.endpoint);
@@ -56,7 +79,7 @@ export class ProviderTransport {
       responseBodyComplete:false,responseBodyUtf8Bytes:null,causeCode:null,abortReasonName:null};
     try {
       checkAbort(signal);
-      const response = await this.fetcher(config.endpoint, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, model: config.model }), signal, redirect: 'error' });
+      const response = await this.#connect(config.endpoint, apiKey, { ...body, model: config.model }, signal);
       trace.headersMs = Math.round(performance.now() - started); trace.httpStatus = response.status;
       outcome.requestId = response.headers.get('x-request-id');
       trace.requestId = outcome.requestId && /^[A-Za-z0-9_-]{1,128}$/.test(outcome.requestId) ? outcome.requestId : null;

@@ -5,7 +5,7 @@ export async function presentationAssetRoutes(projectRoot: string): Promise<Read
   const desktop = resolve(projectRoot, 'code/desktop-pet/desktop'), base = resolve(desktop, 'assets/local-model');
   const refs = JSON.parse(await readFile(resolve(base, 'pet.model3.json'), 'utf8')).FileReferences;
   const paths: string[] = ['pet.model3.json', 'presets.json', refs.Moc, refs.Physics, refs.DisplayInfo, ...refs.Textures,
-    ...refs.Expressions.map((x: { File: string }) => x.File), ...Object.values(refs.Motions as Record<string, { File: string }[]>).flat().map(x => x.File)];
+    ...refs.Expressions.map((x: { File: string }) => x.File), ...Object.values((refs.Motions ?? {}) as Record<string, { File: string }[]>).flat().map(x => x.File)];
   const routes = new Map<string, string>();
   for (const path of new Set(paths.filter(Boolean))) {
     if (path.startsWith('/') || /[:%\\]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Invalid installed model path');

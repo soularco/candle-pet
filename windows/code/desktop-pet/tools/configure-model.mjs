@@ -7,9 +7,10 @@ import {fileURLToPath} from 'node:url';
 const code=fileURLToPath(new URL('..',import.meta.url));
 const base=await realpath(resolve(code,'desktop/assets/local-model'));
 const refs=JSON.parse(await readFile(resolve(base,'pet.model3.json'),'utf8')).FileReferences;
-if(!refs?.Moc||!refs.Physics||!refs.DisplayInfo||!Array.isArray(refs.Textures)||!Array.isArray(refs.Expressions)||!refs.Motions?.Idle?.[0]?.File)
-  throw Error('This adapter requires Moc, Physics, DisplayInfo, Textures, Expressions and Motions.Idle[0]. Adapt the renderer for other rigs.');
-const paths=[...new Set(['pet.model3.json',refs.Moc,refs.Physics,...refs.Expressions.map(x=>x.File),...Object.values(refs.Motions).flat().map(x=>x.File)])].sort();
+if(!refs?.Moc||!refs.Physics||!refs.DisplayInfo||!Array.isArray(refs.Textures)||!Array.isArray(refs.Expressions))
+  throw Error('This adapter requires Moc, Physics, DisplayInfo, Textures and Expressions. Adapt the renderer for other rigs.');
+// A pack may ship no motions at all; blinking and the procedural sway still work.
+const paths=[...new Set(['pet.model3.json',refs.Moc,refs.Physics,...refs.Expressions.map(x=>x.File),...Object.values(refs.Motions??{}).flat().map(x=>x.File)])].sort();
 const hash=b=>createHash('sha256').update(b).digest('hex');let binding='';
 for(const p of [...paths,...refs.Textures,refs.DisplayInfo]){
  if(typeof p!=='string'||p.startsWith('/')||p.split('/').some(x=>!x||x==='.'||x==='..')||/[:%\\]/.test(p))throw Error('Unsafe model-relative path');

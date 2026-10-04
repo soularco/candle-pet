@@ -1,45 +1,58 @@
-**/node_modules/
-**/dist/
-**/build/
-**/.cache/
-**/__pycache__/
-.local/
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+windows/code/desktop-pet/dist/
+build/
+obj/
+
+# ---- 本地数据与凭据：绝对不要提交 ----
+windows/.local/
 **/.local/
-data/
-artifacts/
-.env
-.env.*
-!*.example
-*.key
-*.pem
-config.local.json
-**/config.local.json
-**/activation.json
+**/model-evaluation/
+**/credentials/
+**/*.key
 **/management-session.json
-**/registered-voices.json
-**/desktop/assets/local-model/
-**/desktop/vendor/
-*.sqlite*
-*.db
-*.onnx
-*.moc3
-*.model3.json
-*.exp3.json
-*.motion3.json
-.DS_Store
-*.apk
-*.pkg
-*.dmg
-*.p12
-*.pfx
-*.mobileprovision
-id_rsa*
-id_ed25519*
+**/activation.json
+**/first-run.lock
+**/user-trial/
+
+# ---- 配音缓存（约 87 MB，可重新合成）----
+**/speech-cache/
+**/speech-cache-*/
+**/speech-cache-prev/
+**/speech-cache-cherry/
+**/speech-cache-lively/
+
+# ---- 日志与临时文件 ----
 *.log
-*.jsonl
-*.webm
-*.wav
-*.mp3
-*.m4a
-*.mp4
-*.zip
+*.log.1
+*.bak
+*.bak.*
+*.keep
+_*.mjs
+_*.cjs
+_*.png
+*.tmp
+*.stale
+*.orig
+
+# ---- Live2D 模型：版权属于模型原作者，一律不提交 ----
+# 主模型
+windows/code/desktop-pet/desktop/assets/local-model/*.moc3
+windows/code/desktop-pet/desktop/assets/local-model/*.cdi3.json
+windows/code/desktop-pet/desktop/assets/local-model/*.physics3.json
+windows/code/desktop-pet/desktop/assets/local-model/*.physics3.json.amp
+windows/code/desktop-pet/desktop/assets/local-model/*.8192/
+windows/code/desktop-pet/desktop/assets/local-model/*.2048/
+windows/code/desktop-pet/desktop/assets/local-model/*.4096/
+# 模型备份目录（里面是另一个完整模型，约 31 MB）
+windows/code/desktop-pet/desktop/assets/local-model-fense-backup/
+**/local-model-*-backup/
+# 模型预览图（属于模型美术）
+windows/pet-final.png
+windows/pet-preview*.png
+
+# ---- 其他 ----
+.DS_Store
+Thumbs.db
+desktop.ini

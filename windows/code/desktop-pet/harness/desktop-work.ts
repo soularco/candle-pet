@@ -249,7 +249,12 @@ export class DesktopWork implements DesktopWorkPort {
     } else intent={kind:'companion'};
     this.stage = 'classifying'; this.publish();
     try { if(!(snapshot?.draft && this.options.interpret))intent = await this.options.classify(scope, text, combined); }
-    catch { combined.throwIfAborted();routingFailed=true; intent = { kind: 'clarify', question: '这次请求暂时没能整理，原话已保留，可以重新整理或继续聊天。' }; }
+    catch (error) { process.stderr.write('CLASSIFY_FAILURE: ' + String(error instanceof Error ? (error.stack || error.message) : error) + '\n'); combined.throwIfAborted();
+      // The classifier is an optimisation, not a gate. When it cannot run at all
+      // (network failure, quota, timeout) the safe default is ordinary
+      // conversation: falling back to a "clarify" work card turned every later
+      // message into the same stuck draft, so the character could not chat.
+      routingFailed=true; intent = { kind: 'companion' }; }
     combined.throwIfAborted();
     if (this.closed || epoch !== this.epoch) throw new Error('Input routing became stale');
     if (intent.kind === 'companion') { this.focus = 'companion'; this.stage = 'idle'; this.publish(); return 'companion'; }

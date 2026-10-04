@@ -27,9 +27,13 @@ export function installDisplayControls({ get, shell, setFraming }) {
       Object.assign(get('drawer').style, { position:'absolute', left:`${value.drawerLeft}px`, top:`${value.drawerTop}px`, width:`${value.drawerWidth}px`, margin:'0' });
       get('drawer').dataset.placement = value.placement ?? '';
     }
-    get('character').style.width = `${value.modelWidth}px`;
-    get('character').style.height = `${value.modelHeight}px`;
-    handle.style.right = `calc(50% - ${value.modelWidth / 2}px)`;
+    // Fill the container rather than trusting the host's numbers. Those describe the
+    // panel, and any mismatch between them and the canvas pushes the lower body
+    // outside the element - so clicks on the skirt and legs never reached partAt()
+    // and answered with unrelated lines.
+    get('character').style.width = '100%';
+    get('character').style.height = '100%';
+    handle.style.right = '7px';
     get('drawer').style.maxHeight = `${value.drawerHeight}px`;
     get('drawer').style.height = `${value.drawerHeight}px`;
     for (const mode of ['full', 'half']) get(`view-${mode}`).setAttribute('aria-pressed', String(mode === value.mode));

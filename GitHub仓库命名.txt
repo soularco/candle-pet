@@ -1,0 +1,114 @@
+════════════════════════════════════════════════════════
+ GitHub 仓库命名建议
+════════════════════════════════════════════════════════
+
+【推荐】candle-pet
+────────────────────────────────────────────────────────
+  理由
+    · 英文、全小写、连字符 —— GitHub 的标准形式
+    · 一眼知道是什么："candle" 对应「烛」"pet" 说明是桌宠
+    · 好念好记，搜索时不会和别人的项目撞名
+    · 以后加功能也不用改名（不是 candle-model 这种太窄的）
+
+  仓库地址会是
+    https://github.com/<你的用户名>/candle-pet
+
+【备选】
+────────────────────────────────────────────────────────
+
+  zhu-pet
+    拼音 + 英文。保留了中文名的发音，
+    适合想让中文用户一眼认出的情况。
+    缺点：非中文用户不知道 zhu 是什么。
+
+  wick
+    烛芯。最短、最有味道。
+    适合做成一个更有作品感的东西，
+    但缺点同上：不说明这是什么。
+
+  candle-companion
+    更强调"陪伴"而不是"宠物"。
+    适合如果以后重心偏向对话而不是装饰。
+
+  lumen-pet
+    lumen = 光（拉丁语）。更有气质，
+    但和「烛」的关联弱一些。
+
+【不建议】
+────────────────────────────────────────────────────────
+
+  AAAAGENT
+    这是项目内部的旧名字，纯大写、无意义、
+    和别的东西容易混。不要用它做仓库名。
+
+  zhú / 烛
+    GitHub 仓库名可以含中文，但：
+      · URL 会被百分号编码，很难分享
+      · 命令行里打不出来
+    ★ 建议：**仓库名用 candle-pet，README 标题用「烛 · 桌面宠物」**
+
+【建议的仓库描述】
+────────────────────────────────────────────────────────
+
+  A desktop companion that speaks, remembers, and forgets —
+  Electron + Live2D, 1000+ voiced lines, no cloud required.
+
+  或中文
+  一个会说话、会记得你、也会慢慢忘掉的桌面伙伴。
+  Electron + Live2D，1000+ 句配音，离线可播。
+
+【建议的 Topics】
+────────────────────────────────────────────────────────
+
+  desktop-pet  live2d  electron  cubism  virtual-pet
+  windows  tts  chinese  companion
+
+【建议的文件结构】
+────────────────────────────────────────────────────────
+
+  candle-pet/
+  ├── README.md              ← 已写好，见归档根目录
+  ├── LICENSE                ← 建议加一个（MIT 最简单）
+  ├── .gitignore             ← 必须排除下面这些
+  ├── windows/               源码
+  ├── 使用说明.md
+  └── ...
+
+  .gitignore 至少要有：
+
+    node_modules/
+    windows/.local/
+    windows/code/desktop-pet/dist/
+    windows/code/desktop-pet/debug.log
+    *.log
+    **/speech-cache*/
+    **/*.bak
+    **/*.keep
+    **/model-evaluation/
+
+  ★ 千万不要提交的
+    · windows/.local/                 含试用凭据和个人数据
+    · windows/.local/speech-cache/    87 MB 音频
+    · node_modules/                   455 MB
+    · 模型文件（版权 + 体积）
+
+  ★ 用 Git LFS 也不建议放模型 —— 直接让使用者自己装。
+
+【首次提交的建议】
+────────────────────────────────────────────────────────
+
+  1. 只提交源码 + 文档：
+       windows/code/desktop-pet/desktop/      （界面与渲染）
+       windows/code/desktop-pet/tools/        （构建脚本）
+       windows/code/desktop-pet/*.json         （配置模板）
+       使用说明.md
+       README.md
+
+  2. dist/ 和 node_modules/ 让使用者自己构建
+
+  3. 在 README 里写清楚：
+       · 需要自己准备 Live2D 模型
+       · 需要配置自己的 API key（语音合成）
+       · 构建命令
+
+════════════════════════════════════════════════════════

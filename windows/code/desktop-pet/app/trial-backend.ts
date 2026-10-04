@@ -420,5 +420,5 @@ export async function startTrialBackend(environment: NodeJS.ProcessEnv = process
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  startTrialBackend().catch(() => { process.stderr.write('试用后端未启动，请检查已登记的配置与程序版本。\n'); process.exitCode = 1; });
+  startTrialBackend().catch(error => { process.stderr.write('BACKEND_FAILURE: ' + String((error && error.stack) || error).slice(0, 4000) + '\n'); process.stderr.write('试用后端未启动，请检查已登记的配置与程序版本。\n'); process.exitCode = 1; });
 }
