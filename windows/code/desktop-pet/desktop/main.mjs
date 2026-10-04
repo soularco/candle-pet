@@ -24,9 +24,9 @@ import { DESKTOP_BRIDGE_VERSION } from '../contracts/desktop-bridge.ts';
  */
 const MODEL_BASE = 'assets/models/';
 const AVAILABLE_MODELS = [
+  { id: 'wujinxia', label: '无尽夏' },
   { id: 'xiro', label: '希罗' },
   { id: 'xue', label: '雪' },
-  { id: 'wujinxia', label: '无尽夏' },
 ];
 const MODEL_KEY = 'aaaagent.model';
 let activeModelId = (() => {
@@ -1313,9 +1313,10 @@ try {
   // dialogue library, the reactions and the speech are all model-independent, so a
   // failure here degrades to "no character on screen" rather than "nothing works".
   // 首屏用哪个模型：只读一次 localStorage，不引用后面才定义的常量。
+  // 默认给无尽夏 —— 它是这个项目主要用的模型，换机器之后打开就是它。
   const initialModelId = (() => {
     try { const s = localStorage.getItem('aaaagent.model'); if (s) return s; } catch { /* 隐私模式 */ }
-    return 'xiro';
+    return 'wujinxia';
   })();
   renderer = new JellyfishRenderer($('model'), report, { assetBase: 'assets/models/' + initialModelId + '/' });
   try {

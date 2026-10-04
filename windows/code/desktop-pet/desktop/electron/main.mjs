@@ -791,6 +791,7 @@ ipcMain.on('pet:diagnostic', (event, value) => {
     logLine('Renderer: model-parameter-missing ' + String(value.message ?? '').slice(0, 60));
   } else if (value.type === 'model-switched') {
     logLine('Renderer: model-switched ' + value.from + ' -> ' + value.to);
+    // 摘掉了几个贴在模型上的印章 / 水印部件。
   } else if (value.type === 'policy-model-adapted') {
     // 换模型后策略被适配：保留了多少个自动项。
     logLine('Renderer: policy-model-adapted kept=' + value.kept +

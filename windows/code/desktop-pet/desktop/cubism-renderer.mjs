@@ -47,6 +47,8 @@ function modelInitialParameters(assetBase) {
   }
   return null;
 }
+
+
 /**
  * Vertex-level arm posing.
  *
@@ -56,6 +58,53 @@ function modelInitialParameters(assetBase) {
  * the action table, so nothing else needs touching.
  */
 const ARM_POSING_ENABLED = false;
+
+/**
+ * 眼睛盯鼠标的幅度倍数。
+ *
+ * 眼睛的 ParamEyeBall* 通常是 ±1，光标在屏幕边缘时本来就能顶满。
+ * 但那种情况很少 —— 光标大多待在中段，线性映射只让眼球动一点点，
+ * 看起来就像没在跟。
+ *
+ * 这里放大幅度，同时把 shaping 的指数从 0.62 降到 0.45（见 updateView），
+ * 两处叠加把中段的位移抬起来。写入前会按参数自身的范围夹住，
+ * 所以顶到 ±1 就停，不会写出界。
+ *
+ * 觉得跟得太夸张就调小，1 = 关掉这层放大。
+ */
+const EYE_GAZE_GAIN = 1.9;
+
+/**
+ * 头部和身体跟随光标的幅度倍数。
+ *
+ * 和 EYE_GAZE_GAIN 是一套：眼睛盯住之后，头要跟着转、身体要跟着倾，
+ * 整体才有「转头看过去」的感觉。下面几个增益原本是照着这台装配的
+ * ±10 度夹取范围调的，乘上这个倍数会顶到夹取边界 —— 那正好，
+ * 看起来就是「尽最大可能转过去」，而不是差几度。
+ *
+ * 1 = 关掉这层放大。
+ */
+const HEAD_BODY_GAIN = 1.7;
+
+/**
+ * 是否让动作去「推」物理参数。
+ *
+ * 关。原因有两个：
+ *
+ * 一、动作表里的 phys 参数名是按希罗 / 雪写的，套到别的模型上会错位。
+ *     同样一个 Param33：在希罗上是「裙子物理x1」，在无尽夏上是「前左长发」；
+ *     Param3 更离谱 —— 希罗是「L1物理x1」，无尽夏是「制作者：墨舞笔歌」。
+ *     于是动作本该推裙子，实际推的是头发，甚至会把「制作者」那行字推出来。
+ *
+ * 二、裙子本来就该被身体带动，而不是被外力拉扯。
+ *     模型自带的 physics3.json 会跟着身体参数自然摆动，那才是对的样子；
+ *     再用动作曲线去灌一套往复振荡的力（16 → -13.6 → 12 → -9.6 …），
+ *     看起来就是裙子在自己晃，和身体脱节。
+ *
+ * 关掉之后，裙子只随身体动。armLift 和 switches 那两条通道不受影响，
+ * 动作的抬手、姿势仍然照常。把这里改成 true 就恢复原样。
+ */
+const PHYSICS_PUSH_ENABLED = false;
 export class JellyfishRenderer extends CubismUserModel {
   constructor(canvas, report = () => {}, options = {}) {
     super(); this.canvas = canvas; this.report = report; this.options = options;
@@ -93,6 +142,7 @@ export class JellyfishRenderer extends CubismUserModel {
     this.ready = true; this.last = performance.now();
   }
   // Shared by the real WebGL loader and silent tests of the actual Cubism rig.
+
   async loadRig(readAsset) {
     CubismFramework.startUp({ logFunction: message => this.report({ type: 'sdk', message }), loggingLevel: 3 }); CubismFramework.initialize();
     const buffers = new Map();
@@ -147,6 +197,22 @@ export class JellyfishRenderer extends CubismUserModel {
     this.blink = CubismEyeBlink.create(this.settings);
     this.parameterIndices = new Map(Array.from(this._model.getModel().parameters.ids, (id, i) => [id, i]));
     // Optional, model-specific switches belong in the ignored local mapping.
+    // 眼球参数在各模型里名字不一致：希罗和雪用 ParamEyeBallX / Y，
+    // 无尽夏用的是 ParamEyeBallX2 / Y2。写死任何一个，另一个模型的眼睛
+    // 就完全不会跟着鼠标动。这里按存在性解析出来，后面统一用。
+    const resolveEyeBall = (axis) => {
+      const exact = 'ParamEyeBall' + axis;
+      if (this.parameterIndices.has(exact)) return exact;
+      const numbered = 'ParamEyeBall' + axis + '2';
+      if (this.parameterIndices.has(numbered)) return numbered;
+      for (const name of this.parameterIndices.keys()) {
+        if (name.startsWith('ParamEyeBall' + axis)) return name;
+      }
+      return null;
+    };
+    this.eyeBallXParameter = resolveEyeBall('X');
+    this.eyeBallYParameter = resolveEyeBall('Y');
+
     this.parameterOverrides = new Map(Object.entries(parameterMap.parameterOverrides ?? {}));
     // 模型自带的初始参数（关掉说明文字、水印这类部件）。合并进 overrides，
     // 因为它每帧都会被应用 —— 只 set 一次会被 Cubism 的 update() 冲掉。
@@ -411,7 +477,8 @@ export class JellyfishRenderer extends CubismUserModel {
     // ran after physics; the head had simply been left on the wrong side.
     if (enabled('proc-head') || workActive) {
       this.set(parameterMap.headYaw, movement.yaw); this.set(parameterMap.headPitch, movement.pitch); this.set(parameterMap.headRoll, movement.roll);
-      this.set('ParamEyeBallX', movement.gazeX); this.set('ParamEyeBallY', movement.gazeY);
+      if (this.eyeBallXParameter) this.set(this.eyeBallXParameter, movement.gazeX);
+      if (this.eyeBallYParameter) this.set(this.eyeBallYParameter, movement.gazeY);
     }
     if (workActive || enabled('proc-blink') && !this.previewMode) {
       this.set('ParamEyeLOpen', Math.min(this.get('ParamEyeLOpen'), 1 - movement.blink * .95));
@@ -444,20 +511,35 @@ export class JellyfishRenderer extends CubismUserModel {
       // priority, but a share of the tracking survives so the pet never looks like
       // it stopped paying attention.
       const share = scripted ? .3 : 1;
-      const shape = v => Number.isFinite(v) ? Math.sign(v) * Math.pow(Math.abs(v), 0.62) : 0;
+      // 曲线把中段拉开：光标大多落在 |x| 0.3~0.6，线性映射只动一点点。
+      // 指数从 0.62 降到 0.45，中段抬得更高，眼睛跟得更明显。
+      const shape = v => Number.isFinite(v) ? Math.sign(v) * Math.pow(Math.abs(v), 0.45) : 0;
       const gx = shape(this.cursorGaze.x) * share, gy = shape(this.cursorGaze.y) * share;
       if (!scripted) {
-        this.set('ParamEyeBallX', gx);
-        this.set('ParamEyeBallY', -gy * .85);
+        // 眼球单独再放大一档。这个值会按参数自身的范围夹住 —— 眼睛的
+        // ParamEyeBall* 通常是 ±1，放大后顶到边界就停住，不会写出界。
+        const eyeGain = EYE_GAZE_GAIN;
+        const eyeValue = (name, v) => {
+          if (!name) return v;
+          const i = this.parameterIndices?.get(name);
+          if (i === undefined) return v;
+          const lo = this._model.getParameterMinimumValue(i), hi = this._model.getParameterMaximumValue(i);
+          return Math.max(lo, Math.min(hi, v * eyeGain));
+        };
+        this.set(this.eyeBallXParameter, eyeValue(this.eyeBallXParameter, gx));
+        this.set(this.eyeBallYParameter, eyeValue(this.eyeBallYParameter, -gy * .85));
       }
-      this.set(parameterMap.headYaw, this.get(parameterMap.headYaw) + gx * 16);
-      this.set(parameterMap.headPitch, this.get(parameterMap.headPitch) - gy * 13);
-      this.set(parameterMap.headRoll, this.get(parameterMap.headRoll) + gx * -5.5);
+      // 头、身一起跟着转。乘 HEAD_BODY_GAIN 之后基本会顶到这台装配的
+      // 夹取范围，读起来就是「尽量转过去看」，而不是只偏几度。
+      const hg = HEAD_BODY_GAIN;
+      this.set(parameterMap.headYaw, this.get(parameterMap.headYaw) + gx * 16 * hg);
+      this.set(parameterMap.headPitch, this.get(parameterMap.headPitch) - gy * 13 * hg);
+      this.set(parameterMap.headRoll, this.get(parameterMap.headRoll) + gx * -5.5 * hg);
       // Lean the body toward the pointer too. The head reaches this rig's +/-30
       // degree range near the screen edges, and the body channel keeps the pose
       // reading as "turning to look" past that point.
-      this.set('ParamBodyAngleX', this.get('ParamBodyAngleX') + gx * 8);
-      this.set('ParamBodyAngleZ', this.get('ParamBodyAngleZ') + gx * -3);
+      this.set('ParamBodyAngleX', this.get('ParamBodyAngleX') + gx * 8 * hg);
+      this.set('ParamBodyAngleZ', this.get('ParamBodyAngleZ') + gx * -3 * hg);
     }
     // Whole-sprite motion for ambient actions. This model clamps its head angle
     // parameters to +/-10 degrees, so rotating alone barely reads; shifting the
@@ -482,10 +564,16 @@ export class JellyfishRenderer extends CubismUserModel {
     if (switches.length) for (const item of switches) this.set(item.id, item.value);
     // Limb drivers, written after the solver so they survive this frame. The
     // physics chains then carry the motion forward naturally.
-    const phys = movement.phys ?? this.interaction?.phys ?? [];
+    // 见文件上方 PHYSICS_PUSH_ENABLED 的说明：动作不再去「推」物理参数，
+    // 裙子只随身体动，不额外受力。
+    const phys = PHYSICS_PUSH_ENABLED ? (movement.phys ?? this.interaction?.phys ?? []) : [];
     if (phys.length) {
       for (const item of phys) {
-        if (item && Number.isFinite(item.value)) this.set(item.id, item.value);
+        // 只对确实存在的参数写值 —— 动作表里的名字是按别的模型起的，
+        // 换模型后可能指向完全不相干的东西（例如「制作者：墨舞笔歌」）。
+        if (!item || !Number.isFinite(item.value)) continue;
+        if (!this.parameterIndices.has(item.id)) continue;
+        this.set(item.id, item.value);
       }
     }
     this._model.update();
