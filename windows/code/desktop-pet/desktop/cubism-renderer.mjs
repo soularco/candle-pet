@@ -60,6 +60,8 @@ export class JellyfishRenderer extends CubismUserModel {
     const renderer = this.getRenderer(); renderer.startUp(this.gl); renderer.loadShaders(new URL(this.options.shaderBase ?? 'vendor/cubism/Framework/Shaders/WebGL/', location.href).href); renderer.setIsPremultipliedAlpha(true);
     for (let i = 0; i < this.settings.getTextureCount(); i++) {
       const img = new Image(); img.src = new URL(this.settings.getTextureFileName(i), base).href; await img.decode();
+      // 留一份给面板取色用，省得为了几个颜色再下载一次 8192 的大图。
+      (this.textureImages ??= []).push(img);
       if (Math.max(img.width, img.height) > this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE)) throw new Error('设备不支持这张模型纹理的尺寸');
       const gl = this.gl, tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); renderer.bindTexture(i, tex); this.textures.push(tex);
@@ -606,7 +608,7 @@ export class JellyfishRenderer extends CubismUserModel {
     this.disposed = true; this.ready = false; this.feather?.dispose();
     this.gestureManager.stopAllMotions(); this.gestureManager.release(); this.previewManager.stopAllMotions(); this.previewManager.release();
     for (const tex of this.textures) this.gl?.deleteTexture(tex);
-    this.textures = []; this.expressions.clear(); this.previewValues.clear(); this.release();
+    this.textures = []; this.textureImages = []; this.expressions.clear(); this.previewValues.clear(); this.release();
     // The SDK renderer releases buffers/masks, but shader programs belong to its
     // context manager. Release that manager after our last canvas is disposed.
     if (webglOwners.delete(this) && webglOwners.size === 0) CubismShaderManager_WebGL.deleteInstance();

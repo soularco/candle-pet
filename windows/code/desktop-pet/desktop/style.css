@@ -239,3 +239,31 @@ footer{display:flex;flex:0 0 auto;flex-wrap:wrap;gap:5px;align-items:center}
 .ps-group[open]>summary::before{content:"▾ "}
 .ps-toggle{font:inherit;font-size:8px;padding:2px 8px;border:1px solid #8b2f3a80;border-radius:6px;background:transparent;color:#8192aa;cursor:pointer}
 .ps-toggle[aria-pressed="true"]{background:#c8434f;color:#fff;border-color:#c8434f}
+
+
+/* dialogue priority */
+/* 对话是这块面板的主体，设置是附属。原来两者都是 flex:1，平摊之后对话只剩几十
+   像素，正文读不了。这里让对话先拿空间，设置区退到后面并自己滚动。 */
+#reply{ flex: 3 1 120px; min-height: 96px; padding-right: 4px; }
+#reply::-webkit-scrollbar{ width: 8px; }
+#reply::-webkit-scrollbar-thumb{ background: var(--fill-hi); border-radius: 4px; }
+#reply::-webkit-scrollbar-track{ background: transparent; }
+/* 面板长高时对话跟着长，而不是留一片空白 */
+#drawer{ --reply-share: 3; }
+#pet-settings{ flex: 1 1 0; max-height: 42%; }
+.chat-row{ margin-right: 12px; }
+.chat-row.user{ margin-left: 20px; }
+/* 底部那几行挤在一起；给它们自己的行距，别和输入框贴死。 */
+footer{ row-gap: 6px; }
+#hotkey-settings{ gap: 6px; padding-top: 7px; }
+#hint{ flex: 1 1 120px; }
+
+
+
+/* dialogue share */
+/* 尺寸和位置由主进程算好、渲染进程应用，所以这里不再碰 position / width / height，
+   只调整面板【内部】的分配：对话拿大头，设置区让位并自己滚动。 */
+#reply{ flex: 3 1 0; min-height: 96px; }
+#pet-settings{ flex: 1 1 0; min-height: 150px; max-height: 42%; }
+footer{ row-gap: 6px; }
+#hotkey-settings{ gap: 6px; }

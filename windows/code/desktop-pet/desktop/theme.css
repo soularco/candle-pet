@@ -1,0 +1,148 @@
+
+/* ==========================================================================
+   面板主题与尺寸
+   ==========================================================================
+
+   原来是浅蓝白底、8-10px 字、固定 270px 高且 overflow:hidden。结果是：
+     · 内容超出就被裁掉，读不全
+     · 8px 的灰字在浅底上看不清
+     · 面板不能调整大小
+     · 浅色底和黑红的角色放在一起很跳
+
+   这一段是覆盖层，按顺序盖掉前面的规则：
+     · 深色主题，和角色的黑红相配
+     · 字号整体提到 11-13px，行高放宽
+     · 颜色提到 AA 级对比度
+     · 尺寸由 CSS 变量控制，可拖拽改变
+     · 背景透明度由 --panel-alpha 控制，可在面板里调
+   ========================================================================== */
+
+:root{
+  --panel-alpha: .88;
+  --panel-w: 360px;
+  --panel-h: 560px;
+  --ink: #e8eef7;          /* 主文字 */
+  --ink-dim: #a9b6c9;      /* 次要文字 */
+  --line: #ffffff1f;
+  --fill: #ffffff14;
+  --fill-hi: #ffffff26;
+  --accent: #c8434f;       /* 与角色同一族的红 */
+  --accent-soft: #c8434f33;
+  /* 由模型纹理推导；取不到时下面是中性深色的回退值。 */
+  --panel-tint: 22 24 30;
+}
+
+/* 尺寸和位置来自主进程的 displayConfig，这里只负责外观。 */
+#drawer{
+  padding: 12px 14px 10px;
+  gap: 8px;
+  overflow: hidden;
+  position: relative;
+  color: var(--ink);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgb(var(--panel-tint) / var(--panel-alpha));
+  box-shadow: 0 10px 32px #00000059, inset 0 1px 0 #ffffff14;
+  backdrop-filter: blur(10px);
+}
+
+/* 拖拽手柄：右下角，像窗口一样。 */
+#panel-grip{
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  border-radius: 0 0 12px 0;
+  background: linear-gradient(135deg, transparent 45%, var(--ink-dim) 45%, var(--ink-dim) 55%, transparent 55%,
+                              transparent 65%, var(--ink-dim) 65%, var(--ink-dim) 75%, transparent 75%);
+  opacity: .5;
+  touch-action: none;
+}
+#panel-grip:hover{ opacity: .95; }
+
+/* 标题与按钮 */
+#drawer header{ min-height: 26px; }
+.panel-title{ font-size: 13px; letter-spacing: .08em; color: var(--ink); }
+.presence-dot{ width: 7px; height: 7px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+#close{ flex: 0 0 26px; width: 26px; height: 26px; font-size: 20px; line-height: 24px; color: var(--ink-dim); }
+#close:hover{ background: var(--fill-hi); color: var(--ink); }
+#management{
+  min-width: 52px; padding: 5px 10px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--fill); color: var(--ink);
+}
+#management:hover:not(:disabled){ background: var(--fill-hi); }
+
+#display-controls{ background: var(--fill); padding: 3px; border-radius: 9px; font-size: 11px; }
+#display-controls button{ padding: 4px 9px; border-radius: 7px; color: var(--ink-dim); }
+#display-controls button[aria-pressed="true"]{ background: var(--accent); color: #fff; box-shadow: none; }
+
+/* 正文区 */
+#status{ font-size: 12px; color: var(--ink-dim); }
+#management-notice{ font-size: 11px; color: #e8a0ab; }
+#reply{ font-size: 13px; line-height: 1.75; color: var(--ink); }
+.chat-row{
+  margin: 0 16px 12px 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px 12px 12px 4px;
+  background: var(--fill);
+}
+.chat-row.user{ margin-left: 26px; margin-right: 0; background: var(--accent-soft); border-color: #c8434f40; border-radius: 12px 12px 4px 12px; }
+.chat-label{ font-size: 11px; color: var(--ink-dim); margin-bottom: 3px; }
+
+/* 输入区 */
+#form{ padding: 8px 9px 8px 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--fill); }
+#form:focus-within{ border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#text{ font-size: 13px; color: var(--ink); height: 20px; max-height: 110px; }
+#text::placeholder{ -webkit-text-fill-color: var(--ink-dim); color: var(--ink-dim); }
+#send{ flex: 0 0 30px; width: 30px; height: 30px; font-size: 19px; line-height: 29px; background: var(--accent); }
+#send:hover:not(:disabled){ background: #d8545f; }
+
+/* 底部 */
+footer{ gap: 7px; }
+#voice,#stop{ border-radius: 8px; background: var(--fill); color: var(--ink); padding: 6px 11px; font-size: 12px; }
+#stop{ background: var(--fill); color: #e8a0ab; }
+#hint{ font-size: 11px; color: var(--ink-dim); }
+#quit{ font-size: 11px; color: var(--ink-dim); padding: 4px 6px; }
+#quit:hover{ background: var(--fill-hi); color: var(--ink); }
+
+/* 设置区：字号、滚动、折叠分组 */
+#pet-settings{
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  font-size: 12px; color: var(--ink-dim);
+  padding-top: 8px; border-top: 1px solid var(--line);
+}
+#pet-settings::-webkit-scrollbar{ width: 8px; }
+#pet-settings::-webkit-scrollbar-thumb{ background: var(--fill-hi); border-radius: 4px; }
+#pet-settings::-webkit-scrollbar-track{ background: transparent; }
+.ps-row{ display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; color: var(--ink); }
+.ps-row input[type="number"], .ps-row input[type="text"]{
+  background: var(--fill); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--ink); padding: 4px 6px; font-size: 12px; width: 62px;
+}
+.ps-row input[type="range"]{ accent-color: var(--accent); width: 100px; }
+.ps-row output{ font-size: 11px; color: var(--ink-dim); min-width: 34px; }
+.ps-check input{ accent-color: var(--accent); }
+.ps-hint{ font-size: 11px; color: var(--ink-dim); line-height: 1.6; margin: 3px 0 6px; }
+.ps-group{ border-top: 1px solid var(--line); margin: 6px 0; padding: 4px 0; }
+.ps-group>summary{ font-size: 12px; color: var(--ink); font-weight: 600; padding: 5px 0; }
+.ps-group>summary::before{ color: var(--accent); }
+.ps-actions{ display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 4px 0; }
+.ps-actions button, #pet-settings button{
+  font-size: 12px; padding: 6px 11px; border-radius: 8px;
+  background: var(--fill); color: var(--ink); border: 1px solid var(--line);
+}
+.ps-actions button:hover, #pet-settings button:hover{ background: var(--fill-hi); }
+.ps-toggle{ font-size: 11px; padding: 4px 10px; border-radius: 7px; }
+.ps-toggle[aria-pressed="true"]{ background: var(--accent); color: #fff; border-color: var(--accent); }
+#ps-save{ background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* 快捷条也一起加深，否则和面板两个世界 */
+#quick-bar{ background: rgb(var(--panel-tint) / var(--panel-alpha)); border: 1px solid var(--line); backdrop-filter: blur(10px); }
+#quick-bar button{ color: var(--ink); font-size: 13px; padding: 5px 7px; }
+#quick-bar button:hover{ background: var(--fill-hi); }
+#quick-bar button[aria-pressed="true"]{ background: var(--accent); color: #fff; }
+#qb-volume output{ color: var(--ink-dim); font-size: 11px; min-width: 26px; }
+#open{ background: rgb(var(--panel-tint) / var(--panel-alpha)); border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 6px 16px; }
+#loading{ background: rgb(var(--panel-tint) / var(--panel-alpha)); color: var(--ink); border-color: var(--line); font-size: 12px; }

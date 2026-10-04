@@ -230,7 +230,7 @@ export class InteractionMotion {
         // incoming step must be sampled at ITS OWN elapsed time (just a fraction
         // into its curve), not at the blend weight, or its whole shape gets
         // compressed into the hand-over window.
-        const blendMs=Math.min(260,step.duration*0.28,spec.steps[index+1]?.duration*0.28??0);
+        const blendMs=Math.min(260,step.duration*0.28,(spec.steps[index+1]?.duration??0)*0.28);
         const found={step,t,index,steps:spec.steps};
         if(index+1<spec.steps.length&&blendMs>0){
           const remainingMs=(1-t)*step.duration;

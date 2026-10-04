@@ -21,9 +21,9 @@
     "cacheFirst: 优先播放本地缓存；缺缓存时自动云端合成并落盘（只需联网一次）。"
   ],
   "speech": {
-    "enabled": false,
-    "ambient": false,
-    "replies": false,
+    "enabled": true,
+    "ambient": true,
+    "replies": true,
     "cacheFirst": true,
     "cloudAmbient": true,
     "localEngine": false,
@@ -34,7 +34,7 @@
     "voice": "Yaoyao",
     "rate": 1.05,
     "pitch": 1.15,
-    "volume": 0,
+    "volume": 0.85,
     "sfx": {
       "enabled": true,
       "tap": true,

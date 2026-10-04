@@ -152,6 +152,9 @@ const smoke = process.argv.includes('--smoke-test');
  * silent exception — completely invisible when running the packaged exe. These
  * lines go to a file as well, trimmed so it cannot grow without bound.
  */
+// 面板打开前的窗口尺寸，用来还原。
+let panelRestore = null;
+
 const LOG_DIR = resolve(root, '..', '..', '..', '.local', 'logs');
 const LOG_FILE = join(LOG_DIR, 'electron.log');
 const LOG_MAX_BYTES = 512 * 1024;
@@ -588,7 +591,7 @@ ipcMain.on('pet:shell', (event, value) => {
       else if (beforeResize !== undefined) {
         if (value.phase === 'cancel') { prefs.width = beforeResize; beforeResize = undefined; }
         else if (['update', 'commit'].includes(value.phase) && Number.isFinite(value.width)) {
-          prefs.width = Math.max(220, Math.min(720, value.width));
+          prefs.width = Math.max(180, Math.min(720, value.width));
           if (value.phase === 'commit') { beforeResize = undefined; savePreferences(); }
         }
         layout();
@@ -790,7 +793,7 @@ prefsFile = resolve(app.getPath('userData'), 'windows-display.json');
 try {
   const saved = JSON.parse(await readFile(prefsFile, 'utf8'));
   if (['full', 'half'].includes(saved.mode)) prefs.mode = saved.mode;
-  if (Number.isFinite(saved.width)) prefs.width = Math.max(150, Math.min(720, saved.width));
+  if (Number.isFinite(saved.width)) prefs.width = Math.max(180, Math.min(720, saved.width));
   if (validHotkey(saved.hotkey)) prefs.hotkey = saved.hotkey;
   if (Number.isFinite(saved.anchor?.x) && Number.isFinite(saved.anchor?.y)) anchor = saved.anchor;
 } catch {}

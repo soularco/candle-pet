@@ -139,6 +139,14 @@ function speakLocally(text, engineVoice, engineSpeed) {
   return true;
 }
 /** Ask the host for a pre-synthesized clip; it answers with the text when missing. */
+/** 粗略判断一句话的情绪，用来给缓存配音挑音色。 */
+function emotionForText(text) {
+  const s = String(text ?? '');
+  if (/[！!]{1,}|哈哈|嘿嘿|开心|太好了/.test(s)) return 'cheerful';
+  if (/[？?]$|吗$|呢$/.test(s)) return 'curious';
+  if (/对不起|抱歉|难过|伤心|唉/.test(s)) return 'gentle';
+  return 'neutral';
+}
 function requestCachedSpeech(text, emotion, options = {}) {
   localSpeechRequest = crypto.randomUUID();
   localSpeechFallback = text;
@@ -1178,6 +1186,19 @@ try {
     renderer = null;
   }
   applyPresentationPolicy(); renderer.setFraming(display.mode);
+  // 模型这时才加载完，纹理图也解码好了 —— 面板配色就取它。
+  //
+  // 这里用 setTimeout 是有原因的：applyModelTheme 是 const，定义在文件靠后的位置，
+  // 直接在这里调用会撞上暂时性死区（之前就是这么静默失败的）。推迟到脚本全部求值
+  // 之后再调，就没有这个问题。
+  setTimeout(() => {
+    void (async () => {
+      for (let i = 0; i < 10; i++) {
+        if (await applyModelTheme()) return;
+        await new Promise(done => setTimeout(done, 400));
+      }
+    })();
+  }, 1200);
   // The opening prompt used to appear above an empty canvas, which read as the
   // pet demanding attention before it had even shown up. Fade the greeting first
   // and only reveal the button once there is a character to attach it to.
@@ -1262,7 +1283,7 @@ try {
   const scaleSlider = $('ps-scale'), scaleOut = $('ps-scale-out');
   const SCALE_BASE_WIDTH = 360;
   const applyScale = percent => {
-    const pct = Math.max(60, Math.min(220, Math.round(Number(percent) || 100)));
+    const pct = Math.max(50, Math.min(220, Math.round(Number(percent) || 100)));
     if (scaleOut) scaleOut.value = pct;
     // The host only acts on resize_model once a 'begin' has set its baseline: without
     // it the whole branch is skipped and the slider does nothing. 'begin' captures the
@@ -1290,6 +1311,149 @@ try {
    * keyboard shortcut. Grouping it in the panel means a new user can find it, which
    * matters more than the few hundred bytes it costs.
    */
+
+  /**
+   * 面板尺寸与透明度。
+   *
+   * 尺寸用 CSS 变量控制，拖右下角改变；透明度同理。两者都写进 localStorage，
+   * 下次打开还是这个样子 —— 原来尺寸是写死的，用户完全改不了。
+   */
+  const PANEL_KEY = 'aaaagent.panelBox';
+  const readBox = () => {
+    try { return JSON.parse(localStorage.getItem(PANEL_KEY)) ?? {}; } catch { return {}; }
+  };
+  const writeBox = box => {
+    try { localStorage.setItem(PANEL_KEY, JSON.stringify(box)); } catch { /* 隐私模式 */ }
+  };
+  const applyBox = box => {
+    const root = document.documentElement;
+    if (box.w) root.style.setProperty('--panel-w', box.w + 'px');
+    if (box.h) root.style.setProperty('--panel-h', box.h + 'px');
+    if (box.alpha) {
+      root.style.setProperty('--panel-alpha', String(box.alpha / 100));
+      const slider = $('ps-alpha'), out = $('ps-alpha-out');
+      if (slider) slider.value = box.alpha;
+      if (out) out.value = box.alpha;
+    }
+  };
+  applyBox(readBox());
+
+  const panelGrip = $('panel-grip');
+  const drawer = $('drawer');
+  if (panelGrip && drawer) {
+    panelGrip.addEventListener('pointerdown', start => {
+      start.preventDefault();
+      start.stopPropagation();
+      // setPointerCapture 在合成事件（自动化、部分触控板）上会抛异常，
+      // 之前它一抛，下面的拖动监听就全部没装上。抓不住就退回普通拖动。
+      try { panelGrip.setPointerCapture(start.pointerId); } catch { /* 退回普通拖动 */ }
+      const rect = drawer.getBoundingClientRect();
+      const origin = { x: start.clientX, y: start.clientY, w: rect.width, h: rect.height };
+      const move = event => {
+        // 右下角拖动：往右下变大。上下限同时受窗口大小约束。
+        const w = Math.max(240, Math.min(window.innerWidth - 16, origin.w + (event.clientX - origin.x)));
+        const h = Math.max(220, Math.min(window.innerHeight - 16, origin.h + (event.clientY - origin.y)));
+        document.documentElement.style.setProperty('--panel-w', w + 'px');
+        document.documentElement.style.setProperty('--panel-h', h + 'px');
+      };
+      const end = () => {
+        panelGrip.removeEventListener('pointermove', move);
+        panelGrip.removeEventListener('pointerup', end);
+        panelGrip.removeEventListener('pointercancel', end);
+        const root = getComputedStyle(document.documentElement);
+        writeBox({
+          ...readBox(),
+          w: parseInt(root.getPropertyValue('--panel-w'), 10) || undefined,
+          h: parseInt(root.getPropertyValue('--panel-h'), 10) || undefined,
+        });
+      };
+      panelGrip.addEventListener('pointermove', move);
+      panelGrip.addEventListener('pointerup', end);
+      panelGrip.addEventListener('pointercancel', end);
+    });
+    $('ps-size-reset') && ($('ps-size-reset').onclick = () => {
+      document.documentElement.style.removeProperty('--panel-w');
+      document.documentElement.style.removeProperty('--panel-h');
+      const box = readBox();
+      delete box.w; delete box.h;
+      writeBox(box);
+    });
+  }
+
+  const alphaSlider = $('ps-alpha'), alphaOut = $('ps-alpha-out');
+  alphaSlider && (alphaSlider.oninput = event => {
+    const v = Number(event.target.value) || 88;
+    if (alphaOut) alphaOut.value = v;
+    document.documentElement.style.setProperty('--panel-alpha', String(v / 100));
+  });
+  alphaSlider && (alphaSlider.onchange = event => {
+    writeBox({ ...readBox(), alpha: Number(event.target.value) || 88 });
+  });
+
+  /**
+   * 让面板配色跟着模型走。
+   *
+   * 纹理地址取自模型的 model3.json，不写死文件名。取色在离屏 canvas 上完成：
+   * 反复降采样到很小，统计色相直方图，挑出出现最多的饱和色相当强调色，
+   * 再把它的暗调版本当作底色 —— 这样面板和角色是同一族颜色。
+   */
+  const applyModelTheme = async () => {
+    try {
+      // 渲染器已经把纹理图片解码好了，直接用 —— 它用的路径是
+      // settings.getTextureFileName(i)，不会因为模型换文件名而失效。
+      const image = renderer?.textureImages?.[0] ?? null;
+      if (!image || !image.width) return false;
+
+      // 降到 64×64 再统计：足够看出主色，又不会被细节噪声带偏。
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(image, 0, 0, 64, 64);
+      const { data } = ctx.getImageData(0, 0, 64, 64);
+
+      const hueBins = new Array(36).fill(0);
+      let darkSum = [0, 0, 0], darkN = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a < 24) continue;                       // 透明部分不计
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const l = (max + min) / 2;
+        const s = max === min ? 0 : (l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min));
+        if (l < 0.22) { darkSum[0] += r; darkSum[1] += g; darkSum[2] += b; darkN++; continue; }
+        if (s < 0.28 || l < 0.15) continue;         // 只要够鲜艳的
+        let h;
+        if (max === r) h = ((g - b) / (max - min) + 6) % 6;
+        else if (max === g) h = (b - r) / (max - min) + 2;
+        else h = (r - g) / (max - min) + 4;
+        hueBins[Math.round((h * 60) / 10) % 36] += 1 + s;   // 越鲜艳权重越高
+      }
+
+      let best = 0;
+      for (let i = 1; i < hueBins.length; i++) if (hueBins[i] > hueBins[best]) best = i;
+      const hue = best * 10;
+      const root = document.documentElement;
+
+      if (hueBins[best] > 0) {
+        root.style.setProperty('--accent', `hsl(${hue} 58% 52%)`);
+        root.style.setProperty('--accent-soft', `hsl(${hue} 58% 52% / .20)`);
+      }
+      if (darkN > 0) {
+        // 底色调成模型暗部的同族颜色，而不是中性灰。
+        const r = Math.round(darkSum[0] / darkN * 255);
+        const g = Math.round(darkSum[1] / darkN * 255);
+        const b = Math.round(darkSum[2] / darkN * 255);
+        root.style.setProperty('--panel-tint', `${r} ${g} ${b}`);
+        root.style.setProperty('--accent', `hsl(${hue} 58% 52%)`);
+      }
+      report({ type: 'model-theme', hue, hasDark: darkN > 0 });
+      return hueBins[best] > 0;
+    } catch (error) {
+      // 取不到色就用默认主题，不影响使用。
+      report({ type: 'model-theme', error: String(error?.message ?? error).slice(0, 80) });
+      return false;
+    }
+  };
 
   // --- 取景 ---
   const setMode = mode => {
@@ -1637,13 +1801,30 @@ try {
   // provider call is refused. Give it a moment; if no audio started, read the
   // reply with the local voice so the character is never mute by accident.
   const replyObserver = new MutationObserver(() => {
-    if (!speaker?.wantsReplies()) return;
+    // 语音开着就朗读：原来要求 enabled && replies 同时为真，配置里两个默认都是 false，
+    // 于是这里永远返回，回复从来没有被念出来过。
+    const speechOn = ambientConfig?.speech?.enabled !== false && ambientConfig?.speech?.replies !== false;
+    if (!speechOn) return;
     const rows = $('reply').querySelectorAll('.chat-row.assistant');
     const latest = rows[rows.length - 1]?.textContent?.trim() ?? '';
     if (!latest || latest === lastSpokenReply) return;
     lastSpokenReply = latest;
     if (replySpeechTimer !== null) clearTimeout(replySpeechTimer);
-    replySpeechTimer = setTimeout(() => { replySpeechTimer = null; speaker.speak(latest); }, 2600);
+    // The reply used to go straight to speaker.speak(), which is the operating system's
+    // voice - a flat robot next to the warm cached clips. speak_cached synthesizes
+    // through the same cloud voice and caches the result, so a reply sounds like the
+    // same person as the small talk. The local voice stays as the fallback for when
+    // that produces no audio at all.
+    replySpeechTimer = setTimeout(() => {
+      replySpeechTimer = null;
+      const speechConfig = ambientConfig?.speech ?? {};
+      if (speechConfig.cacheFirst !== false) {
+        requestCachedSpeech(latest, emotionForText(latest), { autoCache: true });
+        setTimeout(() => { if (!localSpeechStarted) speaker?.speak(latest); }, 3400);
+      } else {
+        speaker?.speak(latest);
+      }
+    }, 2600);
   });
   replyObserver.observe($('reply'), { childList: true, subtree: true, characterData: true });
   function animate(at) {
