@@ -791,6 +791,10 @@ ipcMain.on('pet:diagnostic', (event, value) => {
     logLine('Renderer: model-parameter-missing ' + String(value.message ?? '').slice(0, 60));
   } else if (value.type === 'model-switched') {
     logLine('Renderer: model-switched ' + value.from + ' -> ' + value.to);
+  } else if (value.type === 'policy-model-adapted') {
+    // 换模型后策略被适配：保留了多少个自动项。
+    logLine('Renderer: policy-model-adapted kept=' + value.kept +
+      ' (' + value.expected + ' vs ' + value.received + ')');
   } else if (value.type === 'render-rate') {
     // Only sent when the frame rate is actually poor; useful for diagnosing
     // "it feels choppy" reports without logging a healthy session.

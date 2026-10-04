@@ -128,7 +128,15 @@ export class JellyfishRenderer extends CubismUserModel {
     // now skips entries this rig cannot satisfy, so loading can continue.
     if (fingerprint !== presetCatalog.modelFingerprint) {
       this.policyValid = false;
-      this.automaticIds.clear();
+      // 不要在这里清空 automaticIds。
+      //
+      // 这些是【程序化】功能（proc-head 鼠标跟随 / proc-body 身体摆动 /
+      // proc-blink 自动眨眼），它们只是往固定参数名写值，与具体模型无关 ——
+      // 实际审计确认三个模型的头部与眨眼参数一个不缺。
+      //
+      // 原先这里 clear() 一次，换成任何别的模型之后这三项就全没了，
+      // 表现就是「鼠标跟随有时失效」，而且身体摆动和眨眼也一起停。
+      // 真正该丢的只有「引用了本模型没有的参数或表情」的项，交给下面的策略层过滤。
       this.report({ type: 'model-fingerprint-mismatch',
         expected: presetCatalog.modelFingerprint, computed: fingerprint });
     }
@@ -250,7 +258,40 @@ export class JellyfishRenderer extends CubismUserModel {
     // The host sends this sentinel at a backend-generation boundary. Other
     // foreign model IDs must not silently reset the monotonic revision guard.
     if (policy?.modelId === 'disconnected') this.policyRevision = -1;
-    if (policy?.modelId !== presetCatalog.modelId) { this.policyValid = false; this.automaticIds.clear(); this.interaction.release(); this.clearAutomatic(); return false; }
+    if (policy?.modelId !== presetCatalog.modelId) {
+      // 策略是后端按【默认模型】发过来的。换成别的模型之后 modelId 必然对不上，
+      // 但绝不能因此把整个策略丢掉 —— 里面的 proc-head（鼠标跟随）、
+      // proc-body（身体摆动）、proc-blink（自动眨眼）都是程序化的，
+      // 只往固定参数名写值，与具体模型无关。
+      //
+      // 原先这里直接 clear() 并 return，于是换模型后这三项一起消失，
+      // 表现就是「鼠标跟随有时失效」。现在改成逐项过滤：
+      // 只丢掉引用了本模型没有的表情或参数的项，其余保留。
+      this.policyValid = true;
+      const kept = new Set();
+      for (const id of (Array.isArray(policy?.enabledIds) ? policy.enabledIds : [])) {
+        const item = presets.get(id);
+        if (!item) continue;
+        if (item.expressionName && !this.expressions.has(item.expressionName)) continue;
+        kept.add(id);
+      }
+      // 后端在换模型之后没再发策略，enabledIds 会是空的。
+      // 这时按目录里标了 automatic 的项补齐 —— 否则鼠标跟随、身体摆动、
+      // 自动眨眼会被一个空策略永久关掉。
+      if (kept.size === 0) {
+        for (const [id, item] of presets) {
+          if (item?.availability !== 'automatic') continue;
+          if (item.expressionName && !this.expressions.has(item.expressionName)) continue;
+          kept.add(id);
+        }
+      }
+      this.automaticIds = kept;
+      if (Number.isSafeInteger(policy?.revision)) this.policyRevision = policy.revision;
+      if (!['proc-head', 'proc-body', 'proc-blink'].some(id => kept.has(id))) this.interaction.release();
+      this.report({ type: 'policy-model-adapted',
+        expected: presetCatalog.modelId, received: policy?.modelId, kept: kept.size });
+      return true;
+    }
     if (!Number.isSafeInteger(policy.revision) || policy.revision < 0 || policy.revision < this.policyRevision) return false;
     if (!Array.isArray(policy.enabledIds) || policy.enabledIds.some(id => presets.get(id)?.availability !== 'automatic')) { this.policyValid = false; this.automaticIds.clear(); this.interaction.release(); this.clearAutomatic(); return false; }
     const next = new Set(policy.enabledIds);

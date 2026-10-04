@@ -1,0 +1,127 @@
+════════════════════════════════════════════════════════
+ 模型适配性审计 + 自动功能失效修复
+  2026-10-04 19:22
+════════════════════════════════════════════════════════
+
+【一、鼠标跟随「有时失效」的根因 —— 已修复 ★】
+
+ 不是偶尔失效，是【换过模型之后必然失效】，而且拖累的不止跟随。
+
+ 审计三个模型时看到同一组结果：
+
+   policyValid       false      ← 策略被判为无效
+   automaticIds      []         ← 自动项集合被清空了
+
+ automaticIds 里装的是全部程序化功能：
+
+   proc-head    鼠标跟随（眼睛/头部朝指针转）
+   proc-body    身体摆动
+   proc-blink   自动眨眼
+
+ 它们一起被清掉，所以「跟随失效」只是最容易被注意到的那一个。
+
+ 根因在 cubism-renderer.mjs 的 setAutomaticPolicy：
+
+   if (policy?.modelId !== presetCatalog.modelId) {
+     this.policyValid = false;
+     this.automaticIds.clear();      // ← 全部清空
+     this.interaction.release();
+     this.clearAutomatic();
+     return false;
+   }
+
+ 后端是按【默认模型 local-model】发策略的。presets.json 里的 modelId 也是
+ local-model。换成希罗/雪/无尽夏之后二者必然对不上，于是每次换模型都走到
+ 这个分支，把所有自动项清空。
+
+ 但 proc-head / proc-body / proc-blink 只是往固定参数名写值，与具体模型
+ 无关 —— 审计确认三个模型的头部与眨眼参数一个都不缺（有 10 缺 0）。
+
+ 改法：
+   · 模型 ID 对不上时不再整个丢弃策略，改为逐项过滤
+   · 后端没发 enabledIds（换模型后就是这种情况）时，按目录里标了
+     automatic 的项补齐，避免被一个空策略永久关掉
+   · 同时删掉了另一处指纹不匹配时的 automaticIds.clear()
+
+ 修复后实测（三个模型逐个切换）：
+
+   xiro      policyValid=true  automaticIds=[proc-head,proc-body,proc-blink,...]
+   xue       policyValid=true  automaticIds=[proc-head,proc-body,proc-blink,...]
+   wujinxia  policyValid=true  automaticIds=[proc-head,proc-body,proc-blink,...]
+
+【二、动作模板导入情况】
+
+ 逐个检查模型目录里的 motion3.json 与 model3.json 的 Motions 声明：
+
+   希罗      没有 motion3.json            → 无可导入
+   雪        没有 motion3.json            → 无可导入
+   无尽夏    有 1 个 motion3.json，
+             但 model3.json 的 Motions 是空的 → 已登记到 Motions.Idle
+
+ 所以三个模型的「动作组」此前都是 0，无尽夏那一个动作文件被漏掉了，
+ 现已补上。希罗和雪本身不带动作文件，这一项对它们是空集，不是失败。
+
+【三、模型适配性检查结果】
+
+ 每个模型都检查了：drawable 数、参数数、纹理数、必需参数是否齐全。
+
+   希罗      154 drawables  118 params  1 纹理   头部/眨眼参数 10/10 ✓
+   雪        155 drawables  117 params  1 纹理   头部/眨眼参数 10/10 ✓
+   无尽夏    498 drawables  244 params  2 纹理   头部/眨眼参数 10/10 ✓
+
+ 关键参数（ParamAngleX/Y/Z、ParamEyeLOpen/ROpen、ParamBodyAngleX/Y/Z、
+ ParamMouthOpenY、ParamMouthForm）三个模型全部存在 —— 所以程序化功能
+ 与鼠标跟随对三者都适用，这一点已被修复后的实测确认。
+
+ 功能控件：
+   无尽夏    眼睛(6) 动作(6) 发型(4) 呆毛(1) 表情(8)
+   希罗/雪   无（面板自动隐藏该区）
+
+ 表情数：希罗 3、雪 1、无尽夏 26。
+
+【四、还有一处待观察】
+
+ automaticIds 里除了三项程序化功能，还带着 face-monvhua / face-taishou。
+ 这两个是默认模型 local-model 的表情项，希罗/雪/无尽夏并没有对应表情。
+ 它们引用的参数在别的模型里不存在，渲染器会逐项跳过，所以不会报错、
+ 也不会画错 —— 但严格说它们是多余的。后续可以把判据从参数存在性扩展到
+ 表情存在性，彻底滤掉。
+
+【五、关于禁止修改红章 —— 这轮的尝试与结论】
+
+ 用了「不截图猜位置、而是把纹理重新上传到 GL 再逐块涂色」的办法，
+ 成功把范围从整张 8192x8192 缩到 (6144,6144)-(8192,8192) 这个象限 ——
+ 只保留那一块时，红章和署名文字完整显示。
+
+ 但随后出现一个无法调和的矛盾，必须如实说明：
+
+   · 磁盘上的 texture_00 与渲染器取回的内容 SHA256 完全一致
+   · 内存里那张纹理，在我清掉的三个区域（署名行 / 红章区 / uv44）
+     不透明像素都是 0 —— 确实清空了
+   · 可画面上那几处仍然可见
+   · 单独把 texture_00 涂成品红，它们仍在；单独涂 texture_01，也仍在
+   · 两张同时涂成品红时它们「消失」—— 但那只是因为所有东西都变成品红，
+     它们也被涂成了品红，并不是被清掉了
+
+ 结论：它们不采样自这两张纹理。但隐藏 canvas 时它们会一起消失，
+ 说明确实是画在模型画布上的。
+
+ 下一步值得查的方向：
+   · 是否存在第三个 GL 纹理（textureImages 只反映了声明的那两张）
+   · 是否由 ModelFeather 那类叠加通道绘制
+   · moc3 里是否有 drawable 的纹理索引超出 getTextureCount()
+
+ 这轮的纹理改动已经全部回滚到备份状态，模型本身没有留下损伤。
+
+【六、备份】
+
+  D:\aaa\AAAAGENT\_model-backup\
+    wujinxia-texture_00-original.png   18.94 MB   最初
+    wujinxia-texture_00-precise.png    12.36 MB
+    wujinxia-texture_00-icon.png       11.28 MB   当前使用
+    wujinxia-texture_01-original.png    5.96 MB
+    wujinxia-texture_01-precise.png     4.85 MB   当前使用
+    wujinxia-texture_01-current.png     4.85 MB
+    wujinxia-墨舞笔歌.png / 禁止改色.png
+
+════════════════════════════════════════════════════════
