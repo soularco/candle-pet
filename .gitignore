@@ -56,3 +56,9 @@ windows/pet-preview*.png
 .DS_Store
 Thumbs.db
 desktop.ini
+
+*.f3
+*.rb
+_msg.txt
+*.before-rename
+companion.sqlite*

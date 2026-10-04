@@ -34,7 +34,7 @@
     "voice": "Yaoyao",
     "rate": 1.05,
     "pitch": 1.15,
-    "volume": 0.2,
+    "volume": 0,
     "sfx": {
       "enabled": true,
       "tap": true,

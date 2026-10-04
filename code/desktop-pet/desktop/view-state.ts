@@ -19,7 +19,7 @@ export class DesktopViewState {
   private floors = new Map<string, number>();
   private sessionId: string | null = null;
   setSession(characterId: CharacterId, sessionId: string): void {
-    if (!isProductCharacter(characterId)) throw new Error('当前桌面只支持青梅竹马。');
+    if (!isProductCharacter(characterId)) throw new Error('当前桌面只支持烛。');
     this.reset(); this.sessionId = sessionId;
     this.reply = ''; this.invitation = null;
   }

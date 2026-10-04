@@ -15,6 +15,10 @@
  <details id="pet-settings">
   <summary>活泼度设置</summary>
   <div class="pet-settings-body">
+   <!-- Model size leads: the drawer is only 270px tall, and this slider used to sit at
+        the very bottom where it was clipped and impossible to find. -->
+   <label class="ps-row"><span>模型大小</span>
+    <input id="ps-scale" type="range" min="60" max="220" step="5"> <output id="ps-scale-out">100</output>%</label>
    <label class="ps-row"><span>主动开口间隔</span>
     <input id="ps-min" type="number" min="5" max="600" step="1" inputmode="numeric"> ~
     <input id="ps-max" type="number" min="5" max="600" step="1" inputmode="numeric"> 秒</label>
@@ -47,8 +51,6 @@
     <input id="ps-sfxvol" type="range" min="0" max="100" step="5"> <output id="ps-sfxvol-out">70</output>%</label>
    <label class="ps-row"><span>朗读语速</span>
     <input id="ps-voice-rate" type="range" min="80" max="120" step="2"> <output id="ps-voice-rate-out">100</output>%</label>
-    <label class="ps-row"><span>模型大小</span>
-     <input id="ps-scale" type="range" min="60" max="220" step="5"> <output id="ps-scale-out">100</output>%</label>
    <p class="ps-hint" id="ps-voice-hint">换音色后需要重新合成配音（约 5 分钟）。</p>
 
    <!-- 显示 ---------------------------------------------------------------- -->

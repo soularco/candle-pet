@@ -1,7 +1,7 @@
 /** Identity carried by records and work tickets. Product admission is narrower than storage identity. */
 export type CharacterId = string;
 export const COMPANION_ID = 'companion' as const;
-export const COMPANION_LABEL = '青梅竹马' as const;
+export const COMPANION_LABEL = '烛' as const;
 export const PRODUCT_CHARACTERS = Object.freeze([{ id: COMPANION_ID, label: COMPANION_LABEL }]);
 /** Validate opaque identity syntax without substituting the currently active product identity. */
 export function isCharacterId(value: unknown): value is CharacterId {

@@ -850,7 +850,13 @@ $('open').onclick = () => panel(true);
     });
     // Straight to the console: this is the "long way round" that is now one click.
     const consoleButton = $('qb-console');
-    consoleButton && (consoleButton.onclick = event => { event.stopPropagation(); $('management').click(); });
+    // #management lives inside the drawer, so the click has to be dispatched after
+    // the drawer is open - otherwise nothing happens at all.
+    consoleButton && (consoleButton.onclick = event => {
+      event.stopPropagation();
+      panel(true);
+      requestAnimationFrame(() => { const target = $('management'); if (target) target.click(); });
+    });
     const settingsButton = $('qb-settings');
     settingsButton && (settingsButton.onclick = event => {
       event.stopPropagation();

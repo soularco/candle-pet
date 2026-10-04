@@ -53,7 +53,10 @@ footer{display:flex;flex:0 0 auto;flex-wrap:wrap;gap:5px;align-items:center}
 #hotkey-settings{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:3px;font-size:8px;color:#8192aa;padding-top:5px;border-top:1px solid #dce5f1}
 #hotkey-settings button{border-radius:5px;padding:3px 4px;background:#e4ecf7;white-space:nowrap;font-size:8px}
 #hotkey-settings .input-tip{font-size:7px;margin-left:auto;color:#98a7bb;white-space:nowrap}
-#pet-settings{flex:0 0 auto;font-size:8px;color:#8192aa;padding-top:5px;border-top:1px solid #dce5f1}
+/* settings scroll */
+/* The drawer is a fixed 270px column with overflow:hidden, so a settings block
+   taller than the remaining space was clipped and unreachable. It scrolls now. */
+#pet-settings{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;font-size:8px;color:#8192aa;padding-top:5px;border-top:1px solid #dce5f1}
 #pet-settings summary{cursor:pointer;font-size:8px;color:#6f7f96;list-style:none;padding:2px 0}
 #pet-settings summary::marker,#pet-settings summary::-webkit-details-marker{display:none}
 #pet-settings summary::before{content:"▸ ";color:#9fb0c6}

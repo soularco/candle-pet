@@ -1,0 +1,145 @@
+════════════════════════════════════════════════════════
+ 上传 GitHub 完成（2026-10-04 12:33）
+════════════════════════════════════════════════════════
+
+【★ 已成功推送到】
+  https://github.com/soularco/candle-pet
+
+  main = 75a4e6c   与本地完全一致 ✓
+  文件 916 个      提交历史完整 ✓
+
+【一、原作者是否允许修改后上传 —— 允许】
+
+  原项目  AAAAGENT
+  作者    phoiex
+  仓库    https://github.com/phoiex/AAAAGENT
+  许可    AAAAGENT 非商业使用及署名许可 1.0
+
+  LICENSE 第 2 条原文（英文部分最清楚）：
+    "You may view, run, copy, study, modify, quote and redistribute
+     covered material solely for noncommercial purposes, subject to
+     all conditions below."
+
+  ★ 明确允许 modify（修改）和 redistribute（再分发）✓
+
+  必须满足的条件（全部已落实）：
+    ✅ 非商业用途
+    ✅ 标明 AAAAGENT
+    ✅ 保留原作者署名
+    ✅ 提供原仓库链接
+    ✅ 在明显位置标注（README 顶部 + NOTICE.md）
+    ✅ 说明已作修改
+    ✅ 第三方素材各自遵守其许可
+
+【二、复查中发现并处理的风险】
+
+  ★ 风险 1：提交里的真实邮箱
+     原提交作者写的是 soularco <13728547664@163.com>
+     —— 这是真实手机号邮箱，push 后会永久公开且难以撤回 ✗
+
+     处理：改为 soularco@users.noreply.github.com
+     注：原作者的提交用的也是 phoiex@users.noreply.github.com
+         —— 这是社区标准做法 ✓
+
+  ★ 风险 2：另一个完整模型被暂存
+     local-model-fense-backup/
+       fense.moc3        2.2 MB
+       texture_00.png   28.2 MB
+       *.motion3.json    6 个动作文件
+       共约 31 MB，是【另一个 Live2D 模型】✗
+
+     处理：加入 .gitignore 并移出暂存 ✓
+
+  ★ 风险 3：模型截图
+     windows/pet-final.png (172 KB) —— 属于模型美术 ✗
+     处理：加入 .gitignore ✓
+
+  ★ 风险 4：.orig 冲突备份（3 个）
+     处理：加入 .gitignore ✓
+
+【三、最终复查结果（推送前 + 推送后各查一次）】
+
+  敏感路径              推送前  推送后（远端）
+  ───────────────────  ──────  ──────────────
+  .local/ 本地数据        ✅ 0     ✅ 0
+  speech-cache 配音缓存   ✅ 0     ✅ 0
+  *.key 凭据              ✅ 0     ✅ 0
+  *.moc3 模型本体         ✅ 0     ✅ 0
+  *.cdi3.json 模型定义    ✅ 0     ✅ 0
+  *.physics3.json 物理    ✅ 0     ✅ 0
+  *.8192/ 模型纹理        ✅ 0     ✅ 0
+  node_modules 依赖       ✅ 0     ✅ 0
+  model-evaluation        ✅ 0     ✅ 0
+  backup 模型备份         ✅ 0     ✅ 0
+
+  内容扫描（38 个文本文件）
+    ✅ DashScope/OpenAI 风格密钥 → 无
+    ✅ 硬编码 apiKey → 无
+    ✅ Bearer 令牌 → 无
+    ✅ GitHub token → 无
+    ✅ 邮箱地址 → 无
+    ✅ 绝对用户路径 → 无
+
+  体积 0.77 MB（本次改动），无大文件 ✓
+
+【四、推送过程中排掉的三个障碍】
+
+  1. 网络不通
+     git 默认不读 Windows 系统代理 ✗
+     系统代理是 127.0.0.1:7890 且在监听 ✓
+     处理：git config --global http.proxy http://127.0.0.1:7890
+
+  2. 传输中断（index-pack failed）
+     报错每次都指向同一个对象 2199c409 ✗
+     该对象本地不存在
+
+  3. ★ 根因：本地是【浅克隆】
+     is-shallow: true，只有 1 个提交
+     浅克隆无法推送到 GitHub —— 服务器期望的对象本地没有
+     处理：git fetch --unshallow upstream
+          → is-shallow: false，30 个提交，36.91 MiB
+
+  之后推送一次成功，耗时 16 秒 ✓
+
+【五、仓库现状】
+
+  origin   → https://github.com/soularco/candle-pet.git
+  upstream → https://github.com/phoiex/AAAAGENT.git
+             ★ 保留 upstream 既是正确做法，也是 fork 身份的证明
+
+  文件 916 个
+  关键文件：NOTICE.md / README.md / LICENSE / CITATION.cff / .gitignore ✓
+  LICENSE 保持原版未被改动 ✓
+
+【六、建议你接下来做的】
+
+  1. 打开 https://github.com/soularco/candle-pet 看一眼
+     确认 README 顶部的出处声明显示正常
+
+  2. 仓库 About 里填：
+     Description: Forked from AAAAGENT (phoiex) - noncommercial use only
+     Website:     https://github.com/phoiex/AAAAGENT
+     Topics:      desktop-pet, live2d, electron, fork
+
+  3. 如果想让 fork 关系在 GitHub 上显示得更明确，
+     可以在网页上把仓库标记为 fork（会有提示但可以继续）
+
+  4. ⚠️ 永远不要用于任何商业场景
+     接单、卖课、广告、集成进商业产品、公司内部使用、付费托管 —— 都不行
+
+  5. 收到原作者联系第一时间回应
+     NOTICE.md 末尾已写明"如有异议立即下架"
+
+【七、git 代理配置（已设置，便于以后推送）】
+
+  http.proxy  = http://127.0.0.1:7890
+  https.proxy = http://127.0.0.1:7890
+
+  如果以后代理端口变了，需要同步改：
+    git config --global http.proxy http://127.0.0.1:新端口
+    git config --global https.proxy http://127.0.0.1:新端口
+  想取消：
+    git config --global --unset http.proxy
+    git config --global --unset https.proxy
+
+════════════════════════════════════════════════════════
